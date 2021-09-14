@@ -24,20 +24,31 @@ SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as
 VIEWPORT_W = 600
 VIEWPORT_H = 400
 
+PHY_W = VIEWPORT_W / SCALE
+PHY_H = VIEWPORT_H / SCALE
+
 # all numbers defined here are measured in pixels
-GRIPPER_L = 30
-GRIPPER_W = 30
-GRIPPER_POLY = [(-GRIPPER_L/2, GRIPPER_W/2), (GRIPPER_L/2, GRIPPER_W/2), (GRIPPER_L/2, -GRIPPER_W/2), (-GRIPPER_L/2, -GRIPPER_W/2)]
+# will not fullow OpenAI's naming convention, 
+# PX for measuring in pixels
+# PHY for measuring in meters
+# PHY_* = PX_*/SCALE
+PX_GRIPPER_L = 30
+PX_GRIPPER_W = 30
+PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
+                  (PX_GRIPPER_L/2, -PX_GRIPPER_W/2), (-PX_GRIPPER_L/2, -PX_GRIPPER_W/2)]
 # number of sections along the chain
 SECT_NUM = 16 # the number of chains
-SECT_L = 30 # the length of a piece of the chains
-SECT_W = 6 # the width of a piece of the chains
-SECT_POLY = [(-SECT_L/2, SECT_W/2), (SECT_L/2, SECT_W/2), (SECT_L/2, -SECT_W/2), (-SECT_L/2, -SECT_W/2)]
+PX_SECT_L = 30 # the length of a piece of the chains
+PX_SECT_W = 6 # the width of a piece of the chains
+PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\
+            (PX_SECT_L/2, -PX_SECT_W/2), (-PX_SECT_L/2, -PX_SECT_W/2)]
+
+PHY_SECT_L = PX_SECT_L/SCALE
 
 # a section of the chain
 # FD stands for fixtureDef
 SECT_FD = fixtureDef(
-  shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in SECT_POLY]),
+  shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
   density=5.0,
   friction=1,
   categoryBits=0x04,
@@ -46,7 +57,7 @@ SECT_FD = fixtureDef(
 )
 
 PINNED_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in GRIPPER_POLY]),
+  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
   density = 1,
   friction = 1, # very high friction
   restitution = 0, # no restitution
@@ -55,7 +66,7 @@ PINNED_FD = fixtureDef(
 )
 
 GRIPPER_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in GRIPPER_POLY]),
+  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
   density = 1,
   friction = 1, # very high friction
   restitution = 0, # no restitution
@@ -114,29 +125,18 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.world.contactListener = self.world.contactListener_keepref
     self.game_over = False
     self.prev_shaping = None
-
-    W = VIEWPORT_W / SCALE
-    H = VIEWPORT_H / SCALE
-
+    
     # create the rod as a static body in the world
     # TODO: random starting rod position, random radius
     self.rod = self.world.CreateStaticBody(
-      position=(W/2, H/2),
+      position=(PHY_W/2-5, PHY_H/2+3),
       angle = 0.0,
       fixtures = ROD_FD,
     )
     self.rod.color = (38/255, 70/255, 83/255)
 
-    # TODO: create the links of rope as dynamic bodies
-    self.gripper = self.world.CreateDynamicBody(
-      position = (W/2+2, H/2+2),
-      angle = 0.0,
-      fixtures = GRIPPER_FD,
-    )
-    self.gripper.color = (231/255, 111/255, 81/255)
-
     # The gripper that pins down the starting point of the chain.
-    pinned_pos = [W/2-5, H/2+2]
+    pinned_pos = [PHY_W/2-8, PHY_H/2+5]
     self.pinned = self.world.CreateStaticBody(
       position = pinned_pos,
       angle = 0.0,
@@ -147,10 +147,10 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.sections = [self.pinned]
     self.joints = []
     last_anchor = [0, 0]
-    next_anchor = [-SECT_L/2/SCALE, 0]
+    next_anchor = [-PHY_SECT_L/2, 0]
     # jpos_world stands for joint pos under the world coordinate
     last_jpos_world = [i for i in pinned_pos]
-    sect_x_step = SECT_L/SCALE 
+    sect_x_step = PHY_SECT_L
     for i in range(SECT_NUM):
       # create a section
       new_section = self.world.CreateDynamicBody(
@@ -158,6 +158,8 @@ class Coil2DEnv(gym.Env, EzPickle):
         angle = 0,
         fixtures = SECT_FD,
       )
+      # place everything on the ground
+      new_section.gravityScale = 0
       color_grad = i/SECT_NUM/2+0.5
       new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       self.sections.append(new_section)
@@ -174,8 +176,30 @@ class Coil2DEnv(gym.Env, EzPickle):
         # upperAngle = math.pi/4,
       )
       self.joints.append(self.world.CreateJoint(rjd))
-      last_anchor = [SECT_L/2/SCALE, 0]
+      last_anchor = [PHY_SECT_L/2, 0]
       last_jpos_world = [last_jpos_world[0]+sect_x_step, last_jpos_world[1]]
+
+    # TODO: create the links of rope as dynamic bodies
+    self.gripper = self.world.CreateDynamicBody(
+      position = (last_jpos_world[0]+sect_x_step, last_jpos_world[1]),
+      angle = 0.0,
+      fixtures = GRIPPER_FD,
+    )
+    self.gripper.color = (231/255, 111/255, 81/255)
+    # self.gripper.gravityScale = 0
+
+    rjd = revoluteJointDef(
+        bodyA = self.sections[-1],
+        bodyB = self.gripper,
+        localAnchorA = last_anchor,
+        localAnchorB = (0,0),
+        enableMotor = False,
+        enableLimit = False,
+        # enableLimit = True,
+        # lowerAngle = -math.pi/4,
+        # upperAngle = math.pi/4,
+    )
+    self.joints.append(self.world.CreateJoint(rjd))
 
     self.drawlist = [self.rod, self.gripper] + self.sections
 
