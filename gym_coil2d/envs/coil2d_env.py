@@ -9,6 +9,7 @@ from Box2D.b2 import (
     fixtureDef,
     polygonShape,
     revoluteJointDef,
+    ropeJointDef,
     contactListener,
 )
 
@@ -51,7 +52,7 @@ PHY_SECT_L = PX_SECT_L/SCALE
 SECT_FD = fixtureDef(
   shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
   density=5.0,
-  friction=1,
+  friction=0.1,
   categoryBits=0x04,
   maskBits=0x02,  # collide only with rod
   restitution=0,
@@ -160,7 +161,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         fixtures = SECT_FD,
       )
       # place everything on the ground
-      new_section.gravityScale = 0
+      new_section.gravityScale = 0.005
       color_grad = i/SECT_NUM/2+0.5
       new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       self.sections.append(new_section)
@@ -176,6 +177,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         # lowerAngle = -math.pi/4,
         # upperAngle = math.pi/4,
       )
+
       self.joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
       last_jpos_world = [last_jpos_world[0]+PHY_SECT_L, last_jpos_world[1]]
@@ -195,24 +197,24 @@ class Coil2DEnv(gym.Env, EzPickle):
         localAnchorA = last_anchor,
         localAnchorB = (0,0),
         enableMotor = False,
-        enableLimit = False,
-        # enableLimit = True,
-        # lowerAngle = -math.pi/4,
-        # upperAngle = math.pi/4,
+        enableLimit = True,
+        lowerAngle = 0,
+        upperAngle = 0,
     )
     self.joints.append(self.world.CreateJoint(rjd))
 
     self.drawlist = [self.rod, self.gripper] + self.sections
 
   def step(self, action):
+    DELTA_D = 0.1
     if action == 1: # left
-      self.gripper.position += (-0.05, 0)
+      self.gripper.position += (-DELTA_D, 0)
     if action == 2: # right
-      self.gripper.position += (+0.05, 0)
+      self.gripper.position += (+DELTA_D, 0)
     if action == 3: # up
-      self.gripper.position += (0, +0.05)
+      self.gripper.position += (0, +DELTA_D)
     if action == 4: # down
-      self.gripper.position += (0, -0.05)
+      self.gripper.position += (0, -DELTA_D)
 
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
 
@@ -282,7 +284,7 @@ if __name__ == "__main__":
   env.render()
   env.viewer.window.on_key_press = kb.key_press
   env.viewer.window.on_key_release = kb.key_release
-  for _ in range(1000):
+  while True:
     env.render()
     if anime:
       im = Image.fromarray(env.viewer.get_array())
