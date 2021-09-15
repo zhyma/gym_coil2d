@@ -17,6 +17,7 @@ from gym import error, spaces, utils
 from gym.utils import seeding, colorize, EzPickle
 
 import Box2D
+# from pyglet.window.key import F
 
 FPS = 50
 SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
@@ -31,7 +32,7 @@ PHY_H = VIEWPORT_H / SCALE
 # will not fullow OpenAI's naming convention, 
 # PX for measuring in pixels
 # PHY for measuring in meters
-# PHY_* = PX_*/SCALE
+# PHY_??? = PX_???/SCALE
 PX_GRIPPER_L = 30
 PX_GRIPPER_W = 30
 PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
@@ -150,11 +151,11 @@ class Coil2DEnv(gym.Env, EzPickle):
     next_anchor = [-PHY_SECT_L/2, 0]
     # jpos_world stands for joint pos under the world coordinate
     last_jpos_world = [i for i in pinned_pos]
-    sect_x_step = PHY_SECT_L
+    # sect_x_step = PHY_SECT_L
     for i in range(SECT_NUM):
       # create a section
       new_section = self.world.CreateDynamicBody(
-        position = (last_jpos_world[0]+sect_x_step/2, last_jpos_world[1]),
+        position = (last_jpos_world[0]+PHY_SECT_L/2, last_jpos_world[1]),
         angle = 0,
         fixtures = SECT_FD,
       )
@@ -177,16 +178,16 @@ class Coil2DEnv(gym.Env, EzPickle):
       )
       self.joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
-      last_jpos_world = [last_jpos_world[0]+sect_x_step, last_jpos_world[1]]
+      last_jpos_world = [last_jpos_world[0]+PHY_SECT_L, last_jpos_world[1]]
 
     # TODO: create the links of rope as dynamic bodies
     self.gripper = self.world.CreateDynamicBody(
-      position = (last_jpos_world[0]+sect_x_step, last_jpos_world[1]),
+      position = (last_jpos_world[0], last_jpos_world[1]),
       angle = 0.0,
       fixtures = GRIPPER_FD,
     )
     self.gripper.color = (231/255, 111/255, 81/255)
-    # self.gripper.gravityScale = 0
+    self.gripper.gravityScale = 0
 
     rjd = revoluteJointDef(
         bodyA = self.sections[-1],
@@ -204,8 +205,16 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.drawlist = [self.rod, self.gripper] + self.sections
 
   def step(self, action):
+    if action == 1: # left
+      self.gripper.position += (-0.05, 0)
+    if action == 2: # right
+      self.gripper.position += (+0.05, 0)
+    if action == 3: # up
+      self.gripper.position += (0, +0.05)
+    if action == 4: # down
+      self.gripper.position += (0, -0.05)
+
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
-    ...
 
     
   def render(self, mode='human'):
@@ -238,9 +247,49 @@ class Coil2DEnv(gym.Env, EzPickle):
       self.viewer = None
 
 if __name__ == "__main__":
+  from PIL import Image, ImageDraw
+  from pyglet.window import key
+
+  class KeyCtrl():
+    def __init__(self):
+        self.a = 0
+        self.restart = False
+
+    def key_press(self, k, mod):
+        # 0xff0d is the 'enter' key
+        # a == 0: no action
+        if k == 0xff0d:    self.restart = True
+        if k == key.LEFT:  self.a = 1
+        if k == key.RIGHT: self.a = 2
+        if k == key.UP:    self.a = 3
+        if k == key.DOWN:  self.a = 4
+        if k == key.G:     self.a = 5 # grab
+
+    def key_release(self, k, mod):
+        if k == key.LEFT and self.a == 1: self.a = 0
+        if k == key.RIGHT and self.a == 2: self.a = 0
+        if k == key.UP and self.a == 3: self.a = 0
+        if k == key.DOWN and self.a == 4: self.a = 0
+        if k == key.G and self.a == 5: self.a = 0
+
+  kb = KeyCtrl()
+
   env = Coil2DEnv()
   env.reset()
-  for _ in range(300):
+  images = []
+  anime = False
+
+  env.render()
+  env.viewer.window.on_key_press = kb.key_press
+  env.viewer.window.on_key_release = kb.key_release
+  for _ in range(1000):
     env.render()
-    env.step(env.action_space.sample()) # take a random action?
+    if anime:
+      im = Image.fromarray(env.viewer.get_array())
+      images.append(im)
+
+    env.step(kb.a) # take a random action?
+
+  if anime:
+    images[0].save('test.gif', save_all=True, append_images=images[1:],optimize=False,duration=20,loop=0)
   env.close()
