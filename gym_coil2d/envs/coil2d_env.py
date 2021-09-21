@@ -46,6 +46,10 @@ PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\
             (PX_SECT_L/2, -PX_SECT_W/2), (-PX_SECT_L/2, -PX_SECT_W/2)]
 
 PHY_SECT_L = PX_SECT_L/SCALE
+PHY_SECT_W = PX_SECT_W/SCALE
+
+PHY_GRIPPER_L = PX_GRIPPER_L/SCALE
+PHY_GRIPPER_W = PX_GRIPPER_W/SCALE
 
 # # imagine there is a background board
 # PX_BG_POLY = [(-VIEWPORT_W/2, VIEWPORT_H/2), (VIEWPORT_W/2, VIEWPORT_H/2),\
@@ -63,7 +67,7 @@ PHY_SECT_L = PX_SECT_L/SCALE
 # FD stands for fixtureDef
 SECT_FD = fixtureDef(
   shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
-  density = 0.1,
+  density = 1.0,
   friction = 0,
   categoryBits = 0x04,
   maskBits = 0x02,  # collide only with rod
@@ -72,7 +76,7 @@ SECT_FD = fixtureDef(
 
 PINNED_FD = fixtureDef(
   shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  density = 0,
+  density = 1.0,
   friction = 0, # very high friction
   restitution = 0, # no restitution
   categoryBits = 0x04,
@@ -81,7 +85,7 @@ PINNED_FD = fixtureDef(
 
 GRIPPER_FD = fixtureDef(
   shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  density = 0,
+  density = 1.0,
   friction = 1, # very high friction
   restitution = 0, # no restitution
   categoryBits = 0x04,
@@ -90,7 +94,7 @@ GRIPPER_FD = fixtureDef(
 
 ROD_FD = fixtureDef(
   shape = circleShape(pos = (0, 0), radius = 2),
-  density = 1,
+  density = 1.0,
   friction = 1, # very high friction
   restitution = 0, # no restitution
   categoryBits = 0x02,
@@ -116,8 +120,11 @@ class Coil2DEnv(gym.Env, EzPickle):
     # self.seed()
     self.viewer = None
 
-    self.world = Box2D.b2World(gravity=(0,-0.1))
-    # self.world.gravity = (0.0, -0.001)
+    self.g = 10
+    self.gripper_weight = PHY_GRIPPER_L*PHY_GRIPPER_W*self.g
+    self.section_weight = PHY_SECT_L*PHY_SECT_W*self.g
+
+    self.world = Box2D.b2World(gravity=(0, -self.g))
 
     self.rod = None
     self.rope = None
@@ -238,6 +245,19 @@ class Coil2DEnv(gym.Env, EzPickle):
       self.gripper.position += (0, +DELTA_D*2)
     if action[1] == -1: # down
       self.gripper.position += (0, -DELTA_D)
+    # self.gripper.position += (0, 0.02)
+    self.gripper.ApplyForceToCenter((0, self.gripper_weight), True, )
+    for i in self.sections:
+      i.ApplyForceToCenter((0, self.section_weight), True, )
+
+    # if action[0] == -1: # left
+    #   self.gripper.ApplyForceToCenter((1, 0,), True, )
+    # if action[0] == 1: # right
+    #   self.gripper.ApplyForceToCenter((-1, 0,), True, )
+    # if action[1] == 1: # up
+    #   self.gripper.ApplyForceToCenter((0, 1,), True, )
+    # if action[1] == -1: # down
+    #   self.gripper.ApplyForceToCenter((0, -1,), True, )
 
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
 
