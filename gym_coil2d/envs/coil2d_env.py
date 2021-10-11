@@ -35,7 +35,7 @@ PX_GRIPPER_W = 30
 PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
                    (PX_GRIPPER_L/2, -PX_GRIPPER_W/2), (-PX_GRIPPER_L/2, -PX_GRIPPER_W/2)]
 # number of sections along the chain
-SECT_NUM = 32 # the number of chains
+SECT_NUM = 36 # the number of chains
 PX_SECT_L = 30 # the length of a piece of the chains
 PX_SECT_W = 6 # the width of a piece of the chains
 PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\
@@ -78,6 +78,8 @@ GRIPPER_FD = fixtureDef(
   categoryBits = 0x08,
   maskBits = 0x08 + 0x02, # the gripper collides with the rod but not the rope
 )
+
+# sensor has no density
 SENSOR_FD = fixtureDef(
   shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
   # density = 0,
@@ -136,7 +138,7 @@ class ContactDetector(contactListener):
             while idx < len(self.que) and self.que[idx] < sect:
               idx += 1
             self.que.insert(idx, sect)
-          print(self.que, ', ', len(self.que))
+          # print(self.que, ', ', len(self.que))
       else:
         # EndContact
         if sect in self.que:
@@ -155,7 +157,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     # self.seed()
     self.viewer = None
 
-    self.g = 10
+    # self.g = 10
+    self.g = 0
     self.gripper_weight = PHY_GRIPPER_L*PHY_GRIPPER_W*GRIPPER_DENSITY*self.g
     self.section_weight = PHY_SECT_L*PHY_SECT_W*GRIPPER_DENSITY*self.g
 
@@ -230,17 +233,20 @@ class Coil2DEnv(gym.Env, EzPickle):
       color_grad = i/SECT_NUM/2+0.5
       new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       self.rope.append(new_section)
-      # attach this section to its' predecessor
+      # create a joint between sections, attach this section to its' predecessor
       rjd = revoluteJointDef(
         bodyA = self.rope[-2],
         bodyB = self.rope[-1],
         localAnchorA = last_anchor,
         localAnchorB = next_anchor,
         enableMotor = False,
-        enableLimit = False,
-        # enableLimit = True,
-        # lowerAngle = -math.pi/4,
-        # upperAngle = math.pi/4,
+        # enableMotor = True,
+        # motorSpeed = 0,
+        # maxMotorTorque = 1,
+        # enableLimit = False,
+        enableLimit = True,
+        lowerAngle = -math.pi/6,
+        upperAngle = math.pi/6,
       )
       self.rope_joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
@@ -251,12 +257,14 @@ class Coil2DEnv(gym.Env, EzPickle):
       position = (last_jpos_world[0], last_jpos_world[1]),
       angle = 0.0,
       fixtures = [SENSOR_FD, GRIPPER_FD],
+      fixedRotation = True,
     )
     self.gripper.userData = 'gripper'
     self.gripper.color = (231/255, 111/255, 81/255)
 
+    # grab the rope with the gripper
     rjd = revoluteJointDef(
-        bodyA = self.rope[15],
+        bodyA = self.rope[18],
         bodyB = self.gripper,
         localAnchorA = (0,0),
         localAnchorB = (0,0),
@@ -315,6 +323,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     # if action[1] == -1: # down
     #   self.gripper.ApplyForceToCenter((0, -1,), True, )
 
+    # world.Step((dt, velocityIterations, positionIterations))
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
 
     
@@ -381,6 +390,7 @@ if __name__ == "__main__":
   env = Coil2DEnv()
   env.reset()
   images = []
+  # anime = True
   anime = False
 
   env.render()
