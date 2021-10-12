@@ -41,6 +41,9 @@ PX_SECT_W = 6 # the width of a piece of the chains
 PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\
                 (PX_SECT_L/2, -PX_SECT_W/2), (-PX_SECT_L/2, -PX_SECT_W/2)]
 
+# gripper initially clamped to section No. ?
+ATTACH_NO = 18
+
 PHY_SECT_L = PX_SECT_L/SCALE
 PHY_SECT_W = PX_SECT_W/SCALE
 
@@ -102,6 +105,9 @@ ROD_FD = fixtureDef(
 class ContactDetector(contactListener):
     def __init__(self, env):
       contactListener.__init__(self)
+      # contact queue
+      # a queue that saves all the contacted sections.
+      # sort by number
       self.que = []
       self.env = env
 
@@ -118,36 +124,43 @@ class ContactDetector(contactListener):
       gripper = None
       u1 = contact.fixtureA.body.userData
       u2 = contact.fixtureB.body.userData
-      if 'gripper' in u1 and 'section' in u2:
-        gripper = u1
-        section = u2
-      elif 'section' in u1 and 'gripper' in u2:
-        gripper = u2
-        section = u1
-      else:
-        return
+      
+      # contact is between the gripper and sections
+      if ('gripper' in u1 and 'section' in u2) or ('section' in u1 and 'gripper' in u2):
+        if 'gripper' in u1:
+          gripper = u1
+          section = u2
+        elif 'section' in u1:
+          gripper = u2
+          section = u1
+        else:
+          return
 
-      sect = int(section.split('_')[1])
-      if begin:
-        # BeginContact
-        if not sect in self.que:
-          if len(self.que) == 0:
-            self.que = [sect]
-          else:
-            idx = 0
-            while idx < len(self.que) and self.que[idx] < sect:
-              idx += 1
-            self.que.insert(idx, sect)
-          # print(self.que, ', ', len(self.que))
-      else:
-        # EndContact
-        if sect in self.que:
-          self.que.remove(sect)
+        sect = int(section.split('_')[1])
+        if begin:
+          # BeginContact, insert the contacted section into the queue.
+          if not sect in self.que:
+            if len(self.que) == 0:
+              self.que = [sect]
+            else:
+              idx = 0
+              while idx < len(self.que) and self.que[idx] < sect:
+                idx += 1
+              self.que.insert(idx, sect)
+            # print(self.que, ', ', len(self.que))
+        else:
+          # EndContact, remove the section from the queue
+          if sect in self.que:
+            self.que.remove(sect)
 
-      if len(self.que) == 0:
-        env.contact_section = -1
-      else:
-        env.contact_section = self.que[len(self.que)//2]
+        if len(self.que) == 0:
+          env.contact_section = -1
+        else:
+          env.contact_section = self.que[len(self.que)//2]
+
+      # if contact is between sections
+      if ('section' in u1) and ('section' in u2):
+        ...
 
 class Coil2DEnv(gym.Env, EzPickle):
   metadata = {'render.modes': ['human', "rgb_array"], "video.frames_per_second":FPS}
@@ -169,7 +182,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # the state of gripping the rope or not
     self.grabbed = False
-    # 
+    # wherer to grab
     self.contact_section = -1
 
     # 6 low level controls: move left, move right, move up, move down, grab, release
@@ -221,16 +234,23 @@ class Coil2DEnv(gym.Env, EzPickle):
     next_anchor = [-PHY_SECT_L/2, 0]
     # jpos_world stands for joint pos under the world coordinate
     last_jpos_world = [i for i in pinned_pos]
+    # gpos_x and gpos_y stand for the gripper position (attach to a section of the rope)
+    gpos = (0, 0)
     # sect_x_step = PHY_SECT_L
     for i in range(SECT_NUM):
-      # create a section
+      # create a section, spos ithe section position
+      spos = (last_jpos_world[0]+PHY_SECT_L/2, last_jpos_world[1])
       new_section = self.world.CreateDynamicBody(
-        position = (last_jpos_world[0]+PHY_SECT_L/2, last_jpos_world[1]),
+        position = spos,
         angle = 0,
         fixtures = SECT_FD,
       )
+
+      if i == ATTACH_NO:
+        gpos = (last_jpos_world[0]+PHY_SECT_L/2, last_jpos_world[1])
+
       new_section.userData = 'section_' + str(i)
-      color_grad = i/SECT_NUM/2+0.5
+      color_grad = (i%2)/2
       new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       self.rope.append(new_section)
       # create a joint between sections, attach this section to its' predecessor
@@ -240,13 +260,10 @@ class Coil2DEnv(gym.Env, EzPickle):
         localAnchorA = last_anchor,
         localAnchorB = next_anchor,
         enableMotor = False,
-        # enableMotor = True,
-        # motorSpeed = 0,
-        # maxMotorTorque = 1,
         # enableLimit = False,
         enableLimit = True,
-        lowerAngle = -math.pi/6,
-        upperAngle = math.pi/6,
+        lowerAngle = -math.pi/8,
+        upperAngle = math.pi/8,
       )
       self.rope_joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
@@ -254,7 +271,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # create the gripper
     self.gripper = self.world.CreateDynamicBody(
-      position = (last_jpos_world[0], last_jpos_world[1]),
+      position = gpos,
       angle = 0.0,
       fixtures = [SENSOR_FD, GRIPPER_FD],
       fixedRotation = True,
@@ -264,7 +281,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # grab the rope with the gripper
     rjd = revoluteJointDef(
-        bodyA = self.rope[18],
+        bodyA = self.rope[ATTACH_NO],
         bodyB = self.gripper,
         localAnchorA = (0,0),
         localAnchorB = (0,0),
@@ -278,6 +295,13 @@ class Coil2DEnv(gym.Env, EzPickle):
 
   def step(self, action):
     print(self.contact_section)
+
+    # sections with number greater than the one being grabbed are taken as having fixed joints
+    for i in range(SECT_NUM):
+      if i < self.contact_section:
+        ...
+      else:
+        ...
 
     DELTA_D = 0.1
     if self.grabbed == True:
@@ -296,12 +320,14 @@ class Coil2DEnv(gym.Env, EzPickle):
     for i in self.rope:
       i.ApplyForceToCenter((0, self.section_weight), True, )
 
+    # "g" key is pressed, or, self.a[2] == 1
     if action[2] == 1:
       # if grabbing the rope, release it
       if self.grabbed == True:
         self.grabbed = False
         self.world.DestroyJoint(self.grabbing_joint)
       elif self.grabbed == False and self.contact_section >= 0:
+        # grab the rope at that section
         rjd = revoluteJointDef(
             bodyA = self.rope[self.contact_section],
             bodyB = self.gripper,
