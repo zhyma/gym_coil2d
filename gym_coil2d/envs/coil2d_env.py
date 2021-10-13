@@ -324,16 +324,26 @@ class Coil2DEnv(gym.Env, EzPickle):
     for i in self.rope:
       i.ApplyForceToCenter((0, self.section_weight), True, )
 
-    # "g" key is pressed, or, self.a[2] == 1
-    if action[2] == 1:
-      # if grabbing the rope, release it
-      if self.grabbed >= 0:
+    # "r" key is pressed, or, self.a[2] == -1
+    if action[2] == -1:
+       if self.grabbed >= 0:
         self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
-      elif self.grabbed == -1 and self.contact_section >= 0:
+
+    # "g" key is pressed, or, self.a[2] == 1
+    if action[2] == 1:
+      # # if grabbing the rope, release it
+      # if self.grabbed >= 0:
+      #   self.grabbed = -1
+      #   self.world.DestroyJoint(self.grabbing_joint)
+      if self.grabbed == -1 and self.contact_section >= 0:
+        # gp is the grabbing point
+        gp = self.contact_section+1
+        if gp >= len(self.rope):
+          gp = len(self.rope)-1
         # grab the rope at that section
         rjd = revoluteJointDef(
-            bodyA = self.rope[self.contact_section],
+            bodyA = self.rope[gp],
             bodyB = self.gripper,
             localAnchorA = (0,0),
             localAnchorB = (0,0),
@@ -413,6 +423,7 @@ if __name__ == "__main__":
         if k == key.UP:     self.a[1] = 1
         if k == key.DOWN:   self.a[1] = -1
         if k == key.G:      self.a[2] = 1 # grab
+        if k == key.R:      self.a[2] = -1 # release
 
     def key_release(self, k, mod):
         if k == key.LEFT  and self.a[0] == -1: self.a[0] = 0
@@ -420,6 +431,7 @@ if __name__ == "__main__":
         if k == key.UP    and self.a[1] ==  1: self.a[1] = 0
         if k == key.DOWN  and self.a[1] == -1: self.a[1] = 0
         if k == key.G     and self.a[2] ==  1: self.a[2] = 0
+        if k == key.R     and self.a[2] == -1: self.a[2] = 0
 
   kb = KeyCtrl()
 
