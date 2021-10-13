@@ -181,8 +181,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.rope = None
 
     # the state of gripping the rope or not
-    self.grabbed = False
-    # wherer to grab
+    self.grabbed = -1
+    # wherer to grab (contacting point, no matter grabbed or not)
     self.contact_section = -1
 
     # 6 low level controls: move left, move right, move up, move down, grab, release
@@ -205,7 +205,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.game_over = False
     self.prev_shaping = None
 
-    self.grabbed = False
+    self.grabbed = -1
 
     # create the rod as a static body in the world
     # TODO: random starting rod position, random radius
@@ -227,6 +227,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.pinned.userData = 'pinned'
     self.pinned.color = (244/255, 162/255, 97/255)
 
+    # rope = [pinned, section_0, section_1, ...]
     self.rope = [self.pinned]
     self.grabbing_joint = None
     self.rope_joints = []
@@ -281,7 +282,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # grab the rope with the gripper
     rjd = revoluteJointDef(
-        bodyA = self.rope[ATTACH_NO],
+        bodyA = self.rope[ATTACH_NO+1],
         bodyB = self.gripper,
         localAnchorA = (0,0),
         localAnchorB = (0,0),
@@ -289,22 +290,15 @@ class Coil2DEnv(gym.Env, EzPickle):
         enableLimit = False,
     )
     self.grabbing_joint = self.world.CreateJoint(rjd)
-    self.grabbed = True
+    self.grabbed = ATTACH_NO
 
     self.drawlist = [self.rod, self.gripper] + self.rope
 
   def step(self, action):
-    print(self.contact_section)
-
-    # sections with number greater than the one being grabbed are taken as having fixed joints
-    for i in range(SECT_NUM):
-      if i < self.contact_section:
-        ...
-      else:
-        ...
+    # print(self.contact_section)
 
     DELTA_D = 0.1
-    if self.grabbed == True:
+    if self.grabbed >= 0:
       DELTA_D = 0.5
     if action[0] == -1: # left
       self.gripper.position += (-DELTA_D, 0)
@@ -323,10 +317,10 @@ class Coil2DEnv(gym.Env, EzPickle):
     # "g" key is pressed, or, self.a[2] == 1
     if action[2] == 1:
       # if grabbing the rope, release it
-      if self.grabbed == True:
-        self.grabbed = False
+      if self.grabbed >= 0:
+        self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
-      elif self.grabbed == False and self.contact_section >= 0:
+      elif self.grabbed == -1 and self.contact_section >= 0:
         # grab the rope at that section
         rjd = revoluteJointDef(
             bodyA = self.rope[self.contact_section],
@@ -337,7 +331,7 @@ class Coil2DEnv(gym.Env, EzPickle):
             enableLimit = False,
         )
         self.grabbing_joint = self.world.CreateJoint(rjd)
-        self.grabbed = True
+        self.grabbed = self.contact_section
 
     # # method: apply force to the gripper
     # if action[0] == -1: # left
@@ -351,6 +345,15 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # world.Step((dt, velocityIterations, positionIterations))
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
+     # sections with number greater than the one being grabbed are taken as having fixed joints
+    pos = (0, 0)
+    for i in range(1,len(self.rope)):
+      color_grad = ((i-1)%2)/2
+      self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
+      if i > self.grabbed+1:
+        self.rope[i].color = (120/255, 30/255, 30/255)
+      else:
+        ...
 
     
   def render(self, mode='human'):
