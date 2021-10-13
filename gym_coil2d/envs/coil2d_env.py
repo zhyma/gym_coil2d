@@ -255,17 +255,26 @@ class Coil2DEnv(gym.Env, EzPickle):
       new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       self.rope.append(new_section)
       # create a joint between sections, attach this section to its' predecessor
-      rjd = revoluteJointDef(
-        bodyA = self.rope[-2],
-        bodyB = self.rope[-1],
-        localAnchorA = last_anchor,
-        localAnchorB = next_anchor,
-        enableMotor = False,
-        # enableLimit = False,
-        enableLimit = True,
-        lowerAngle = -math.pi/8,
-        upperAngle = math.pi/8,
-      )
+      # if i < ATTACH_NO:
+      if True:
+        rjd = revoluteJointDef(
+          bodyA = self.rope[-2],
+          bodyB = self.rope[-1],
+          localAnchorA = last_anchor,
+          localAnchorB = next_anchor,
+          enableMotor = False,
+          # enableLimit = False,
+          enableLimit = True,
+          lowerAngle = -math.pi/8,
+          upperAngle = math.pi/8,
+        )
+      # else:
+      #   rjd = weldJointDef(
+      #     bodyA = self.rope[-2],
+      #     bodyB = self.rope[-1],
+      #     localAnchorA = last_anchor,
+      #     localAnchorB = next_anchor,
+      #   )
       self.rope_joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
       last_jpos_world = [last_jpos_world[0]+PHY_SECT_L, last_jpos_world[1]]
@@ -296,6 +305,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
   def step(self, action):
     # print(self.contact_section)
+    # print(self.rope[3])
 
     DELTA_D = 0.1
     if self.grabbed >= 0:
@@ -333,25 +343,22 @@ class Coil2DEnv(gym.Env, EzPickle):
         self.grabbing_joint = self.world.CreateJoint(rjd)
         self.grabbed = self.contact_section
 
-    # # method: apply force to the gripper
-    # if action[0] == -1: # left
-    #   self.gripper.ApplyForceToCenter((1, 0,), True, )
-    # if action[0] == 1: # right
-    #   self.gripper.ApplyForceToCenter((-1, 0,), True, )
-    # if action[1] == 1: # up
-    #   self.gripper.ApplyForceToCenter((0, 1,), True, )
-    # if action[1] == -1: # down
-    #   self.gripper.ApplyForceToCenter((0, -1,), True, )
-
     # world.Step((dt, velocityIterations, positionIterations))
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
      # sections with number greater than the one being grabbed are taken as having fixed joints
     pos = (0, 0)
+    angle = 0
     for i in range(1,len(self.rope)):
       color_grad = ((i-1)%2)/2
       self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
-      if i > self.grabbed+1:
+      if i == self.grabbed+1:
+        self.rope[i].color = (30/255, 120/255, 30/255)
+      elif i > self.grabbed+1 and self.grabbed > 0:
+        pos = self.rope[i-1].position
+        angle = self.rope[i-1].angle
         self.rope[i].color = (120/255, 30/255, 30/255)
+        self.rope[i].position = [pos[0]+PHY_SECT_L*math.cos(angle), pos[1]+PHY_SECT_L*math.sin(angle)]
+        self.rope[i].angle = angle
       else:
         ...
 
