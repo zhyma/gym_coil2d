@@ -55,7 +55,7 @@ SECTION_DENSITY = 0.1
 
 # a section of the chain
 # FD stands for fixtureDef
-SECT_FD = fixtureDef(
+SECTION_FD = fixtureDef(
   shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
   density = SECTION_DENSITY,
   friction = 0,
@@ -83,13 +83,17 @@ GRIPPER_FD = fixtureDef(
 )
 
 # sensor has no density
-SENSOR_FD = fixtureDef(
+# define a sensor for the gripper
+S_GRIPPER_FD = fixtureDef(
   shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  # density = 0,
-  # friction = 0, # very high friction
-  # restitution = 0, # no restitution
   categoryBits = 0x10,
   maskBits = 0x04, # the gripper collides with the rod but not the rope
+  isSensor = True,
+)
+S_SECTION_FD = fixtureDef(
+  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
+  categoryBits = 0x16,
+  maskBits = 0x16, # sections only collides with other sections
   isSensor = True,
 )
 
@@ -110,6 +114,7 @@ class ContactDetector(contactListener):
       # sort by number
       self.que = []
       self.env = env
+      self.loop = []
 
     def BeginContact(self, contact):
       self._contact(contact, True)
@@ -160,7 +165,11 @@ class ContactDetector(contactListener):
 
       # if contact is between sections
       if ('section' in u1) and ('section' in u2):
-        ...
+        sect_1 = int(u1.split('_')[1])
+        sect_2 = int(u2.split('_')[1])
+        if abs(sect_1-sect_2) > 3:
+          self.loop = [sect_1, sect_2]
+          # print("close loop detected")
 
 class Coil2DEnv(gym.Env, EzPickle):
   metadata = {'render.modes': ['human', "rgb_array"], "video.frames_per_second":FPS}
@@ -244,7 +253,7 @@ class Coil2DEnv(gym.Env, EzPickle):
       new_section = self.world.CreateDynamicBody(
         position = spos,
         angle = 0,
-        fixtures = SECT_FD,
+        fixtures = [S_SECTION_FD, SECTION_FD],
       )
 
       if i == ATTACH_NO:
@@ -268,13 +277,6 @@ class Coil2DEnv(gym.Env, EzPickle):
           lowerAngle = -math.pi/8,
           upperAngle = math.pi/8,
         )
-      # else:
-      #   rjd = weldJointDef(
-      #     bodyA = self.rope[-2],
-      #     bodyB = self.rope[-1],
-      #     localAnchorA = last_anchor,
-      #     localAnchorB = next_anchor,
-      #   )
       self.rope_joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
       last_jpos_world = [last_jpos_world[0]+PHY_SECT_L, last_jpos_world[1]]
@@ -283,7 +285,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.gripper = self.world.CreateDynamicBody(
       position = gpos,
       angle = 0.0,
-      fixtures = [SENSOR_FD, GRIPPER_FD],
+      fixtures = [S_GRIPPER_FD, GRIPPER_FD],
       fixedRotation = True,
     )
     self.gripper.userData = 'gripper'
@@ -306,6 +308,9 @@ class Coil2DEnv(gym.Env, EzPickle):
   def step(self, action):
     # print(self.contact_section)
     # print(self.rope[3])
+    # self.rope[1].fixtures = SECTION_FD
+    # print("type is: ",)
+    # print(self.rope[1].fixtures)
 
     DELTA_D = 0.1
     if self.grabbed >= 0:
@@ -329,6 +334,9 @@ class Coil2DEnv(gym.Env, EzPickle):
        if self.grabbed >= 0:
         self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
+        print(self.world.contactListener.loop)
+        self.rope[self.world.contactListener.loop[0]+1].color = (120/255, 30/255, 30/255)
+        self.rope[self.world.contactListener.loop[1]+1].color = (120/255, 30/255, 30/255)
 
     # "g" key is pressed, or, self.a[2] == 1
     if action[2] == 1:
@@ -360,7 +368,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     angle = 0
     for i in range(1,len(self.rope)):
       color_grad = ((i-1)%2)/2
-      self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
+      # self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
+      ...
       if i == self.grabbed+1:
         self.rope[i].color = (30/255, 120/255, 30/255)
       elif i > self.grabbed+1 and self.grabbed > 0:
