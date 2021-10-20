@@ -53,6 +53,10 @@ PHY_GRIPPER_W = PX_GRIPPER_W/SCALE
 GRIPPER_DENSITY = 0.1
 SECTION_DENSITY = 0.1
 
+GREEN = (30/255, 120/255, 30/255)
+DARK_RED = (120/255, 30/255, 30/255)
+LIGHT_RED = (150/255, 0/255, 0/255)
+
 # a section of the chain
 # FD stands for fixtureDef
 SECTION_FD = fixtureDef(
@@ -90,6 +94,7 @@ S_GRIPPER_FD = fixtureDef(
   maskBits = 0x04, # the gripper collides with the rod but not the rope
   isSensor = True,
 )
+# define a sensor for the rope
 S_SECTION_FD = fixtureDef(
   shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
   categoryBits = 0x16,
@@ -335,8 +340,8 @@ class Coil2DEnv(gym.Env, EzPickle):
         self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
         print(self.world.contactListener.loop)
-        self.rope[self.world.contactListener.loop[0]+1].color = (120/255, 30/255, 30/255)
-        self.rope[self.world.contactListener.loop[1]+1].color = (120/255, 30/255, 30/255)
+        self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
+        self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
 
     # "g" key is pressed, or, self.a[2] == 1
     if action[2] == 1:
@@ -371,11 +376,11 @@ class Coil2DEnv(gym.Env, EzPickle):
       # self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       ...
       if i == self.grabbed+1:
-        self.rope[i].color = (30/255, 120/255, 30/255)
+        self.rope[i].color = GREEN
       elif i > self.grabbed+1 and self.grabbed > 0:
         pos = self.rope[i-1].position
         angle = self.rope[i-1].angle
-        self.rope[i].color = (120/255, 30/255, 30/255)
+        self.rope[i].color = DARK_RED
         self.rope[i].position = [pos[0]+PHY_SECT_L*math.cos(angle), pos[1]+PHY_SECT_L*math.sin(angle)]
         self.rope[i].angle = angle
       else:
