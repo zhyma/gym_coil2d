@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 def bezier_3(p, gran=0.01):
     # 3-order bezier curve with 4 control points
+    print(p)
     c = lambda t: (1 - t)**3*p[0] + 3*t*(1 - t)**2*p[1] + 3*t**2*(1-t)*p[2] + t**3*p[3]
     points = np.array([c(t) for t in np.arange(0, 1, gran)])
     return points

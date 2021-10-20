@@ -1,6 +1,7 @@
 import sys
 import math
-# import numpy as np
+import numpy as np
+from bezier_3 import bezier_3
 
 import Box2D
 from Box2D.b2 import (
@@ -111,6 +112,26 @@ ROD_FD = fixtureDef(
   maskBits = 0x08 + 0x04 + 0x02, # the rod collides with both the rope and the gripper
 )
 
+# Bezier curve control point
+BP_FD = fixtureDef(
+  shape = circleShape(pos = (0, 0), radius = 0.5),
+  density = 0,
+  friction = 0, # very high friction
+  restitution = 0, # no restitution
+  categoryBits = 0x00,
+  maskBits = 0x00, # the rod collides with both the rope and the gripper
+)
+
+# Bezier curve way points (sampling points)
+WP_FD = fixtureDef(
+  shape = circleShape(pos = (0, 0), radius = 0.1),
+  density = 0,
+  friction = 0, # very high friction
+  restitution = 0, # no restitution
+  categoryBits = 0x00,
+  maskBits = 0x00, # the rod collides with both the rope and the gripper
+)
+
 class ContactDetector(contactListener):
     def __init__(self, env):
       contactListener.__init__(self)
@@ -164,9 +185,9 @@ class ContactDetector(contactListener):
             self.que.remove(sect)
 
         if len(self.que) == 0:
-          env.contact_section = -1
+          self.env.contact_section = -1
         else:
-          env.contact_section = self.que[len(self.que)//2]
+          self.env.contact_section = self.que[len(self.que)//2]
 
       # if contact is between sections
       if ('section' in u1) and ('section' in u2):
@@ -188,18 +209,22 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.g = 0
     self.gripper_weight = PHY_GRIPPER_L*PHY_GRIPPER_W*GRIPPER_DENSITY*self.g
     self.section_weight = PHY_SECT_L*PHY_SECT_W*GRIPPER_DENSITY*self.g
-
     self.world = Box2D.b2World(gravity=(0, -self.g))
 
     self.rod = None
     self.rope = None
+    self.ctrl_point = []
+    self.ctrl_point_body = []
+    self.way_point = []
 
     # the state of gripping the rope or not
     self.grabbed = -1
     # wherer to grab (contacting point, no matter grabbed or not)
     self.contact_section = -1
 
-    # 6 low level controls: move left, move right, move up, move down, grab, release
+    self.b_ctrl = [[-1, -1]]*3
+    # 6 low level controls: move left, move right, move up, move down, grab, release, x, y
+    # TODO: update this field
     self.action_space = spaces.Discrete(6)
 
     self.reset()
@@ -212,6 +237,18 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.world.contactListener = None
     ...
 
+  def ctrl_point_clean(self):
+    while len(self.ctrl_point_body) > 0:
+      self.world.DestroyBody(self.ctrl_point_body[-1])
+      del(self.ctrl_point_body[-1])
+
+    while len(self.ctrl_point) > 0:
+      del(self.ctrl_point[-1])
+
+    while len(self.way_point) > 0:
+      self.world.DestroyBody(self.way_point[-1])
+      del(self.way_point[-1])
+
   def reset(self):
     self._destroy()
     self.world.contactListener_keepref = ContactDetector(self)
@@ -220,6 +257,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.prev_shaping = None
 
     self.grabbed = -1
+
+    self.ctrl_point_clean()
 
     # create the rod as a static body in the world
     # TODO: random starting rod position, random radius
@@ -317,6 +356,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     # print("type is: ",)
     # print(self.rope[1].fixtures)
 
+    # moving by using keyboard
     DELTA_D = 0.1
     if self.grabbed >= 0:
       DELTA_D = 0.5
@@ -386,6 +426,39 @@ class Coil2DEnv(gym.Env, EzPickle):
       else:
         ...
 
+    # create a bezier curve as the moving trjactory
+    if action[3] > -1 and action[4] > -1:
+      # print(len(self.ctrl_point))
+      if len(self.ctrl_point) >= 3:
+        self.ctrl_point_clean()
+
+      self.ctrl_point.append([action[3]/SCALE,action[4]/SCALE])
+      self.ctrl_point_body.append(self.world.CreateStaticBody(
+          position=(action[3]/SCALE, action[4]/SCALE),
+          angle = 0.0,
+          fixtures = BP_FD,
+        )
+      )
+      action[3] = -1
+      action[4] = -1
+      self.ctrl_point_body[-1].userData = 'control point'
+      self.ctrl_point_body[-1].color = (120/255, 0/255, 83/255)
+
+    if len(self.way_point) == 0 and len(self.ctrl_point) == 3:
+      # create curve by given control point
+      input = np.array([[self.gripper.position[0], self.gripper.position[1]]]+self.ctrl_point)
+      # print(input)
+      points = bezier_3(input, gran=0.01)
+      for p in points:
+        self.way_point.append(self.world.CreateStaticBody(
+            position=(p[0], p[1]),
+            angle = 0.0,
+            fixtures = WP_FD,
+          )
+        )
+        self.way_point[-1].userData = 'control point'
+        self.way_point[-1].color = (120/255, 0/255, 183/255)
+
     
   def render(self, mode='human'):
     from gym.envs.classic_control import rendering
@@ -394,7 +467,7 @@ class Coil2DEnv(gym.Env, EzPickle):
       self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
       self.viewer.set_bounds(0, VIEWPORT_W / SCALE, 0, VIEWPORT_H / SCALE)
 
-    for obj in self.drawlist:
+    for obj in self.drawlist+self.ctrl_point_body+self.way_point:
       for f in obj.fixtures:
         trans = f.body.transform
         if type(f.shape) is circleShape:
@@ -420,10 +493,10 @@ if __name__ == "__main__":
   from PIL import Image, ImageDraw
   from pyglet.window import key
 
-  class KeyCtrl():
+  class Interactive():
     def __init__(self):
         # left/right, up/down, grab/releases
-        self.a = [0, 0, 0]
+        self.a = [0, 0, 0, -1, -1]
         self.restart = False
         self.quit = False
 
@@ -447,7 +520,16 @@ if __name__ == "__main__":
         if k == key.G     and self.a[2] ==  1: self.a[2] = 0
         if k == key.R     and self.a[2] == -1: self.a[2] = 0
 
-  kb = KeyCtrl()
+    def mouse_press(self, x, y, button, modifiers):
+      pass
+
+    def mouse_release(self, x, y, button, modifiers):
+      self.pos = [x, y]
+      self.a[3] = x
+      self.a[4] = y
+      print(self.pos)
+
+  kb = Interactive()
 
   env = Coil2DEnv()
   env.reset()
@@ -458,6 +540,8 @@ if __name__ == "__main__":
   env.render()
   env.viewer.window.on_key_press = kb.key_press
   env.viewer.window.on_key_release = kb.key_release
+  env.viewer.window.on_mouse_press = kb.mouse_press
+  env.viewer.window.on_mouse_release = kb.mouse_release
   while kb.quit==False:
     env.render()
     if anime:
