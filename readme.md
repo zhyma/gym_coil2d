@@ -1,6 +1,11 @@
 ## Setup
 - Prepare:
-    You need to have ```gym``` and ```box2d-py``` installed. For the latter one, setup ```swig``` first. ```box2d-py``` can be installed seperately or by calling ```pip install gym[box2d]```
+    You need to have `gym` and `box2d-py` installed. 
+    1. Setup [Swig](http://www.swig.org/download.html) first if you don't have it installed.
+    2. install Pyglet by:
+         `pip install pyglet`
+    3. `box2d-py` can be installed seperately or by calling
+        `pip install gym[box2d]`
 - Additional package (this one)
     Under the folder that contains ```gym_coil2d```
     ```

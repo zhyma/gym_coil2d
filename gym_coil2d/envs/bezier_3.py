@@ -1,8 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt 
 
-
-
 def bezier_3(p, gran=0.01):
     # 3-order bezier curve with 4 control points
     print(p)

@@ -1,7 +1,8 @@
 import sys
 import math
+# from typing import ParamSpec
 import numpy as np
-from bezier_3 import bezier_3
+# from bezier_3 import bezier_3
 
 import Box2D
 from Box2D.b2 import (
@@ -132,6 +133,74 @@ WP_FD = fixtureDef(
   maskBits = 0x00, # the rod collides with both the rope and the gripper
 )
 
+class Bezier_traj():
+  def __init__(self, world):
+    self.para_len = 4
+    self.param = self.param = []
+    self.traj = []
+    self.ctrl_point = []
+    self.way_point = []
+    self.world = world
+    self.ctrl_start = Box2D.b2Vec2(0,0)
+
+  def clear_bodies(self, bodies):
+    while len(bodies) > 0:
+      self.world.DestroyBody(bodies[-1])
+      del(bodies[-1])
+  
+  def clean(self):
+    self.param = []
+    self.clear_bodies(self.ctrl_point)
+    self.traj = []
+    self.clear_bodies(self.way_point)
+
+  def place_ctrl_param(self, x, y):
+    if len(self.param) >= 4:
+      # too many control points, starts over.
+      self.clean()
+
+    if len(self.param)==0:
+      # no control points, use the gripper position as the first control point
+      self.param.append([self.ctrl_start[0], self.ctrl_start[1]])
+
+    if len(self.param) <= 4:
+      # need four control points in total
+      self.param.append([x/SCALE,y/SCALE])
+      self.ctrl_point.append(self.world.CreateStaticBody(
+        position=(x/SCALE, y/SCALE),
+        angle = 0.0,
+        fixtures = BP_FD,
+        )
+      )
+      self.ctrl_point[-1].userData = 'control point'
+      self.ctrl_point[-1].color = (120/255, 0/255, 83/255)
+    
+    if len(self.param) ==4:
+      # just enough control points, generate a trajectory
+      self.traj_gen()
+
+  def traj_gen(self, gran = 0.01):  
+    if len(self.param) == 4:
+      # generate a cubic bezier curve by given control points
+      p = np.array(self.param)
+      c = lambda t: (1 - t)**3*p[0] + 3*t*(1 - t)**2*p[1] + 3*t**2*(1-t)*p[2] + t**3*p[3]
+      self.traj = np.array([c(t) for t in np.arange(0, 1, gran)])
+
+      for p in self.traj:
+        self.way_point.append(self.world.CreateStaticBody(
+            position=(p[0], p[1]),
+            angle = 0.0,
+            fixtures = WP_FD,
+          )
+        )
+        self.way_point[-1].userData = 'way point'
+        self.way_point[-1].color = (120/255, 0/255, 183/255)
+        
+
+      return 1
+    else:
+      return -1
+
 class ContactDetector(contactListener):
     def __init__(self, env):
       contactListener.__init__(self)
@@ -213,16 +282,13 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     self.rod = None
     self.rope = None
-    self.ctrl_point = []
-    self.ctrl_point_body = []
-    self.way_point = []
+    self.curve = Bezier_traj(self.world)
 
     # the state of gripping the rope or not
     self.grabbed = -1
     # wherer to grab (contacting point, no matter grabbed or not)
     self.contact_section = -1
 
-    self.b_ctrl = [[-1, -1]]*3
     # 6 low level controls: move left, move right, move up, move down, grab, release, x, y
     # TODO: update this field
     self.action_space = spaces.Discrete(6)
@@ -237,18 +303,6 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.world.contactListener = None
     ...
 
-  def ctrl_point_clean(self):
-    while len(self.ctrl_point_body) > 0:
-      self.world.DestroyBody(self.ctrl_point_body[-1])
-      del(self.ctrl_point_body[-1])
-
-    while len(self.ctrl_point) > 0:
-      del(self.ctrl_point[-1])
-
-    while len(self.way_point) > 0:
-      self.world.DestroyBody(self.way_point[-1])
-      del(self.way_point[-1])
-
   def reset(self):
     self._destroy()
     self.world.contactListener_keepref = ContactDetector(self)
@@ -257,8 +311,6 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.prev_shaping = None
 
     self.grabbed = -1
-
-    self.ctrl_point_clean()
 
     # create the rod as a static body in the world
     # TODO: random starting rod position, random radius
@@ -334,6 +386,10 @@ class Coil2DEnv(gym.Env, EzPickle):
     )
     self.gripper.userData = 'gripper'
     self.gripper.color = (231/255, 111/255, 81/255)
+
+    # If you want to generate a Bezier curve,
+    # the position of th gripper will be the first control point
+    self.curve.ctrl_start = self.gripper.position
 
     # grab the rope with the gripper
     rjd = revoluteJointDef(
@@ -426,38 +482,11 @@ class Coil2DEnv(gym.Env, EzPickle):
       else:
         ...
 
-    # create a bezier curve as the moving trjactory
     if action[3] > -1 and action[4] > -1:
-      # print(len(self.ctrl_point))
-      if len(self.ctrl_point) >= 3:
-        self.ctrl_point_clean()
-
-      self.ctrl_point.append([action[3]/SCALE,action[4]/SCALE])
-      self.ctrl_point_body.append(self.world.CreateStaticBody(
-          position=(action[3]/SCALE, action[4]/SCALE),
-          angle = 0.0,
-          fixtures = BP_FD,
-        )
-      )
+      self.curve.place_ctrl_param(action[3], action[4])
       action[3] = -1
       action[4] = -1
-      self.ctrl_point_body[-1].userData = 'control point'
-      self.ctrl_point_body[-1].color = (120/255, 0/255, 83/255)
-
-    if len(self.way_point) == 0 and len(self.ctrl_point) == 3:
-      # create curve by given control point
-      input = np.array([[self.gripper.position[0], self.gripper.position[1]]]+self.ctrl_point)
-      # print(input)
-      points = bezier_3(input, gran=0.01)
-      for p in points:
-        self.way_point.append(self.world.CreateStaticBody(
-            position=(p[0], p[1]),
-            angle = 0.0,
-            fixtures = WP_FD,
-          )
-        )
-        self.way_point[-1].userData = 'control point'
-        self.way_point[-1].color = (120/255, 0/255, 183/255)
+      # print(self.curve.param)
 
     
   def render(self, mode='human'):
@@ -467,7 +496,7 @@ class Coil2DEnv(gym.Env, EzPickle):
       self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
       self.viewer.set_bounds(0, VIEWPORT_W / SCALE, 0, VIEWPORT_H / SCALE)
 
-    for obj in self.drawlist+self.ctrl_point_body+self.way_point:
+    for obj in self.drawlist + self.curve.ctrl_point + self.curve.way_point:
       for f in obj.fixtures:
         trans = f.body.transform
         if type(f.shape) is circleShape:
@@ -527,7 +556,7 @@ if __name__ == "__main__":
       self.pos = [x, y]
       self.a[3] = x
       self.a[4] = y
-      print(self.pos)
+      # print(self.pos)
 
   kb = Interactive()
 
