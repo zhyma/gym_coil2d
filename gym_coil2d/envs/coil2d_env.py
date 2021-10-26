@@ -138,8 +138,7 @@ class Bezier_traj():
     self.para_len = 4
     self.param = self.param = []
     self.traj = []
-    self.ctrl_point = []
-    self.way_point = []
+    self.point_bodies = []
     self.world = world
     self.ctrl_start = Box2D.b2Vec2(0,0)
 
@@ -150,9 +149,8 @@ class Bezier_traj():
   
   def clean(self):
     self.param = []
-    self.clear_bodies(self.ctrl_point)
     self.traj = []
-    self.clear_bodies(self.way_point)
+    self.clear_bodies(self.point_bodies)
 
   def place_ctrl_param(self, x, y):
     if len(self.param) >= 4:
@@ -166,14 +164,14 @@ class Bezier_traj():
     if len(self.param) <= 4:
       # need four control points in total
       self.param.append([x/SCALE,y/SCALE])
-      self.ctrl_point.append(self.world.CreateStaticBody(
+      self.point_bodies.append(self.world.CreateStaticBody(
         position=(x/SCALE, y/SCALE),
         angle = 0.0,
         fixtures = BP_FD,
         )
       )
-      self.ctrl_point[-1].userData = 'control point'
-      self.ctrl_point[-1].color = (120/255, 0/255, 83/255)
+      self.point_bodies[-1].userData = 'control point'
+      self.point_bodies[-1].color = (120/255, 0/255, 83/255)
     
     if len(self.param) ==4:
       # just enough control points, generate a trajectory
@@ -187,15 +185,14 @@ class Bezier_traj():
       self.traj = np.array([c(t) for t in np.arange(0, 1, gran)])
 
       for p in self.traj:
-        self.way_point.append(self.world.CreateStaticBody(
+        self.point_bodies.append(self.world.CreateStaticBody(
             position=(p[0], p[1]),
             angle = 0.0,
             fixtures = WP_FD,
           )
         )
-        self.way_point[-1].userData = 'way point'
-        self.way_point[-1].color = (120/255, 0/255, 183/255)
-        
+        self.point_bodies[-1].userData = 'way point'
+        self.point_bodies[-1].color = (120/255, 0/255, 183/255)
 
       return 1
     else:
@@ -496,7 +493,7 @@ class Coil2DEnv(gym.Env, EzPickle):
       self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
       self.viewer.set_bounds(0, VIEWPORT_W / SCALE, 0, VIEWPORT_H / SCALE)
 
-    for obj in self.drawlist + self.curve.ctrl_point + self.curve.way_point:
+    for obj in self.drawlist + self.curve.point_bodies:
       for f in obj.fixtures:
         trans = f.body.transform
         if type(f.shape) is circleShape:
