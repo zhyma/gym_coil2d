@@ -219,18 +219,17 @@ class Spiral_traj():
     self.traj = []
     self.clear_bodies(self.point_bodies)
 
-  def traj_gen(self, gran = 0.1):
+  def traj_gen(self, param, gran = 0.1):
     self.clean()
     n = -1/2
     x_r = self.rod_pos[0]
     y_r = self.rod_pos[1]
     x_g = self.ctrl_start[0]
     y_g = self.ctrl_start[1]
-    t_0 = 0.2 # self.param[1]
-    t_e = t_0 + np.pi*2 # self.param[2]
+    t_0 = param[1] # 0.2
+    t_e = param[2] # t_0 + np.pi*2 
 
-    self.param[0] = 1
-    if self.param[0] == 0:
+    if param[0] == 0:
       # go around the rod in a CCW manner (and angles are positive)
       if x_g-x_r == 0:
         if y_g < y_r:
@@ -249,8 +248,7 @@ class Spiral_traj():
         y = r*np.sin(t) + y_r
         self.traj.append([x,y])
     else:
-      # go around the rod in a CW manner (and )
-      print('CW')
+      # go around the rod in a CW manner (and angles are negative)
       if x_g-x_r == 0:
         if y_g < y_r:
           t_os = 3/2*np.pi
@@ -486,7 +484,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     self.drawlist = [self.rod, self.gripper] + self.rope
 
-  def step(self, action):
+  def micro_step(self, action):
     # print(self.contact_section)
     # print(self.rope[3])
     # self.rope[1].fixtures = SECTION_FD
@@ -502,7 +500,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     if action[0] == 1: # right
       self.gripper.position += (+DELTA_D, 0)
     if action[1] == 1: # up
-      self.gripper.position += (0, +DELTA_D*2)
+      self.gripper.position += (0, +DELTA_D)
     if action[1] == -1: # down
       self.gripper.position += (0, -DELTA_D)
 
@@ -511,7 +509,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     for i in self.rope:
       i.ApplyForceToCenter((0, self.section_weight), True, )
 
-    # "r" key is pressed, or, self.a[2] == -1
+    # "r" key is pressed --> self.a[2] == -1
     if action[2] == -1:
        if self.grabbed >= 0:
         self.grabbed = -1
@@ -520,7 +518,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
         self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
 
-    # "g" key is pressed, or, self.a[2] == 1
+    # "g" key is pressed --> self.a[2] == 1
     if action[2] == 1:
       # # if grabbing the rope, release it
       # if self.grabbed >= 0:
@@ -563,14 +561,47 @@ class Coil2DEnv(gym.Env, EzPickle):
       else:
         ...
 
-    if action[3] > -1 and action[4] > -1:
-      # self.curve.place_ctrl_param(action[3], action[4])
-      self.curve.traj_gen()
-      action[3] = -1
-      action[4] = -1
-      # print(self.curve.param)
+    # if action[3] > -1 and action[4] > -1:
+    #   # self.curve.place_ctrl_param(action[3], action[4])
+    #   self.curve.traj_gen()
+    #   action[3] = -1
+    #   action[4] = -1
+    #   # print(self.curve.param)
 
-    
+  def dist(self, p1, p2):
+    return np.sqrt((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)
+
+  def macro_step(self, param):
+    self.curve.traj_gen([1, 0.2, 0.2+np.pi*2])
+    print('traj ready')
+    for p in self.curve.traj:
+      time_out = 0
+      while time_out < 5:
+        x = self.gripper.position[0]
+        y = self.gripper.position[1]
+        d = self.dist([x, y], p)
+        print(d)
+        
+        if d > 0.14:
+          a = [0]*3
+          if p[0] < x-0.1:
+            a[0] = -1
+          elif p[0] > x+0.1:
+            a[0] = 1
+          if p[1] < y-0.1:
+            a[1] = -1
+          elif p[1] > y+0.1:
+            a[1] = 1
+          
+          print(a)
+          self.micro_step(a)
+          self.render()
+          if self.dist(self.gripper.position, [x, y]) < 0.08:
+            # not moving for some reason
+            time_out += 1
+        else:
+          time_out = 10
+
   def render(self, mode='human'):
     from gym.envs.classic_control import rendering
 
@@ -610,35 +641,14 @@ if __name__ == "__main__":
         self.a = [0, 0, 0, -1, -1]
         self.restart = False
         self.quit = False
+        self.start = False
 
     def key_press(self, k, mod):
         # 0xff0d is the 'enter' key
         # a == 0: no action
         if k == 0xff0d:     self.restart = True
         if k == key.ESCAPE: self.quit = True
-        if k == key.LEFT:   self.a[0] = -1
-        if k == key.RIGHT:  self.a[0] = 1
-        if k == key.UP:     self.a[1] = 1
-        if k == key.DOWN:   self.a[1] = -1
-        if k == key.G:      self.a[2] = 1 # grab
-        if k == key.R:      self.a[2] = -1 # release
-
-    def key_release(self, k, mod):
-        if k == key.LEFT  and self.a[0] == -1: self.a[0] = 0
-        if k == key.RIGHT and self.a[0] ==  1: self.a[0] = 0
-        if k == key.UP    and self.a[1] ==  1: self.a[1] = 0
-        if k == key.DOWN  and self.a[1] == -1: self.a[1] = 0
-        if k == key.G     and self.a[2] ==  1: self.a[2] = 0
-        if k == key.R     and self.a[2] == -1: self.a[2] = 0
-
-    def mouse_press(self, x, y, button, modifiers):
-      pass
-
-    def mouse_release(self, x, y, button, modifiers):
-      self.pos = [x, y]
-      self.a[3] = x
-      self.a[4] = y
-      # print(self.pos)
+        if k == key.S:      self.start = True
 
   kb = Interactive()
 
@@ -650,17 +660,25 @@ if __name__ == "__main__":
 
   env.render()
   env.viewer.window.on_key_press = kb.key_press
-  env.viewer.window.on_key_release = kb.key_release
-  env.viewer.window.on_mouse_press = kb.mouse_press
-  env.viewer.window.on_mouse_release = kb.mouse_release
+
+  # initializing the environment
+  for i in range(30):
+    env.render()
+    env.micro_step([0]*3) # take a random action?
+
+  while kb.start == False:
+    env.render()
+    env.micro_step([0]*3)
+    
+  # 0 for CCW / 1 for CW, t_0 for starting angle, t_e for leaving angle
+  env.macro_step([1, 0.2, 0.2+np.pi*2])
+
+  # wait to quit
   while kb.quit==False:
     env.render()
-    if anime:
-      im = Image.fromarray(env.viewer.get_array())
-      images.append(im)
 
-    env.step(kb.a) # take a random action?
+    env.micro_step([0]*3) # take a random action?
 
-  if anime:
-    images[0].save('test.gif', save_all=True, append_images=images[1:],optimize=False,duration=20,loop=0)
+  # if anime:
+  #   images[0].save('test.gif', save_all=True, append_images=images[1:],optimize=False,duration=20,loop=0)
   env.close()
