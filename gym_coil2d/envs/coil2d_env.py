@@ -202,7 +202,7 @@ class Spiral_traj():
   def __init__(self, world):
     # parameters: direction (cw/ccw), \theta_offset (t_os), \theta_0 (t_0), \theta_e (t_e)
     self.para_len = 4
-    self.param = []
+    self.param = [0]*4
     self.traj = []
     self.point_bodies = []
     self.world = world
@@ -215,7 +215,7 @@ class Spiral_traj():
       del(bodies[-1])
   
   def clean(self):
-    self.param = []
+    self.param = [0]*4
     self.traj = []
     self.clear_bodies(self.point_bodies)
 
@@ -228,24 +228,45 @@ class Spiral_traj():
     y_g = self.ctrl_start[1]
     t_0 = 0.2 # self.param[1]
     t_e = t_0 + np.pi*2 # self.param[2]
-    # t_os = 0
-    if x_g-x_r == 0:
-      if y_g < y_r:
-        t_os = 3/2*np.pi
-      else:
-        t_os = np.pi/2
-    else:
-      t_os = np.arctan((y_g-y_r)/(x_g-x_r))
 
-    r_0 = np.sqrt((x_r-x_g)**2+(y_r-y_g)**2)
-    a = r_0/np.power(t_0, n)
-    r_t = [a*np.power((t_0+t), n) for t in np.arange(0, t_e-t_0, gran)]
-    for dt in np.arange(0, t_e-t_0, gran):
-      r = a*np.power((t_0+dt), n)
-      t = dt + t_os
-      x = r*np.cos(t) + x_r
-      y = r*np.sin(t) + y_r
-      self.traj.append([x,y])
+    self.param[0] = 1
+    if self.param[0] == 0:
+      # go around the rod in a CCW manner (and angles are positive)
+      if x_g-x_r == 0:
+        if y_g < y_r:
+          t_os = 3/2*np.pi
+        else:
+          t_os = np.pi/2
+      else:
+        t_os = np.arctan((y_g-y_r)/(x_g-x_r))
+
+      r_0 = np.sqrt((x_r-x_g)**2+(y_r-y_g)**2)
+      a = r_0/np.power(t_0, n)
+      for dt in np.arange(0, t_e-t_0, gran):
+        r = a*np.power((t_0+dt), n)
+        t = dt + t_os
+        x = r*np.cos(t) + x_r
+        y = r*np.sin(t) + y_r
+        self.traj.append([x,y])
+    else:
+      # go around the rod in a CW manner (and )
+      print('CW')
+      if x_g-x_r == 0:
+        if y_g < y_r:
+          t_os = 3/2*np.pi
+        else:
+          t_os = np.pi/2
+      else:
+        t_os = np.arctan((y_g-y_r)/(x_g-x_r))
+
+      r_0 = np.sqrt((x_r-x_g)**2+(y_r-y_g)**2)
+      a = r_0/np.power(t_0, n)
+      for dt in np.arange(0, t_e-t_0, gran):
+        r = a*np.power((t_0+dt), n)
+        t = -dt + t_os
+        x = r*np.cos(t) + x_r
+        y = r*np.sin(t) + y_r
+        self.traj.append([x,y])
 
     for p in self.traj:
       self.point_bodies.append(self.world.CreateStaticBody(
