@@ -18,265 +18,9 @@ import gym
 from gym import error, spaces, utils
 from gym.utils import seeding, colorize, EzPickle
 
-FPS = 50
-SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
-
-VIEWPORT_W = 800
-VIEWPORT_H = 800
-
-PHY_W = VIEWPORT_W / SCALE
-PHY_H = VIEWPORT_H / SCALE
-
-# all numbers defined here are measured in pixels
-# will not fullow OpenAI's naming convention, 
-# PX for measuring in pixels
-# PHY for measuring in meters
-# PHY_??? = PX_???/SCALE
-PX_GRIPPER_L = 30
-PX_GRIPPER_W = 30
-PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
-                   (PX_GRIPPER_L/2, -PX_GRIPPER_W/2), (-PX_GRIPPER_L/2, -PX_GRIPPER_W/2)]
-# number of sections along the chain
-SECT_NUM = 36 # the number of chains
-PX_SECT_L = 30 # the length of a piece of the chains
-PX_SECT_W = 6 # the width of a piece of the chains
-PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\
-                (PX_SECT_L/2, -PX_SECT_W/2), (-PX_SECT_L/2, -PX_SECT_W/2)]
-
-# gripper initially clamped to section No. ?
-ATTACH_NO = 18
-
-PHY_SECT_L = PX_SECT_L/SCALE
-PHY_SECT_W = PX_SECT_W/SCALE
-
-PHY_GRIPPER_L = PX_GRIPPER_L/SCALE
-PHY_GRIPPER_W = PX_GRIPPER_W/SCALE
-
-GRIPPER_DENSITY = 0.1
-SECTION_DENSITY = 0.1
-
-GREEN = (30/255, 120/255, 30/255)
-DARK_RED = (120/255, 30/255, 30/255)
-LIGHT_RED = (150/255, 0/255, 0/255)
-
-# a section of the chain
-# FD stands for fixtureDef
-SECTION_FD = fixtureDef(
-  shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
-  density = SECTION_DENSITY,
-  friction = 0,
-  categoryBits = 0x04,
-  maskBits = 0x10 + 0x02,  # collide only with rod
-  restitution = 0,
-)
-
-PINNED_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  density = GRIPPER_DENSITY,
-  friction = 0, # very high friction
-  restitution = 0, # no restitution
-  categoryBits = 0x08,
-  maskBits = 0x08 + 0x02, # the gripper collides with the rod but not the rope
-)
-
-GRIPPER_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  density = GRIPPER_DENSITY,
-  friction = 1, # very high friction
-  restitution = 0, # no restitution
-  categoryBits = 0x08,
-  maskBits = 0x08 + 0x02, # the gripper collides with the rod but not the rope
-)
-
-# sensor has no density
-# define a sensor for the gripper
-S_GRIPPER_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  categoryBits = 0x10,
-  maskBits = 0x04, # the gripper collides with the rod but not the rope
-  isSensor = True,
-)
-# define a sensor for the rope
-S_SECTION_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
-  categoryBits = 0x16,
-  maskBits = 0x16, # sections only collides with other sections
-  isSensor = True,
-)
-
-ROD_FD = fixtureDef(
-  shape = circleShape(pos = (0, 0), radius = 2),
-  density = 1.0,
-  friction = 1, # very high friction
-  restitution = 0, # no restitution
-  categoryBits = 0x02,
-  maskBits = 0x08 + 0x04 + 0x02, # the rod collides with both the rope and the gripper
-)
-
-# Bezier curve control point
-BP_FD = fixtureDef(
-  shape = circleShape(pos = (0, 0), radius = 0.5),
-  density = 0,
-  friction = 0, # very high friction
-  restitution = 0, # no restitution
-  categoryBits = 0x00,
-  maskBits = 0x00, # the rod collides with both the rope and the gripper
-)
-
-# Bezier curve way points (sampling points)
-WP_FD = fixtureDef(
-  shape = circleShape(pos = (0, 0), radius = 0.1),
-  density = 0,
-  friction = 0, # very high friction
-  restitution = 0, # no restitution
-  categoryBits = 0x00,
-  maskBits = 0x00, # the rod collides with both the rope and the gripper
-)
-
-class Bezier_traj():
-  def __init__(self, world):
-    self.para_len = 4
-    self.param = []
-    self.traj = []
-    self.point_bodies = []
-    self.world = world
-    self.ctrl_start = Box2D.b2Vec2(0,0)
-
-  def clear_bodies(self, bodies):
-    while len(bodies) > 0:
-      self.world.DestroyBody(bodies[-1])
-      del(bodies[-1])
-  
-  def clean(self):
-    self.param = []
-    self.traj = []
-    self.clear_bodies(self.point_bodies)
-
-  def place_ctrl_param(self, x, y):
-    if len(self.param) >= 4:
-      # too many control points, starts over.
-      self.clean()
-
-    if len(self.param)==0:
-      # no control points, use the gripper position as the first control point
-      self.param.append([self.ctrl_start[0], self.ctrl_start[1]])
-
-    if len(self.param) <= 4:
-      # need four control points in total
-      self.param.append([x/SCALE,y/SCALE])
-      self.point_bodies.append(self.world.CreateStaticBody(
-        position=(x/SCALE, y/SCALE),
-        angle = 0.0,
-        fixtures = BP_FD,
-        )
-      )
-      self.point_bodies[-1].userData = 'control point'
-      self.point_bodies[-1].color = (120/255, 0/255, 83/255)
-    
-    if len(self.param) ==4:
-      # just enough control points, generate a trajectory
-      self.traj_gen()
-
-  def traj_gen(self, gran = 0.01):  
-    if len(self.param) == 4:
-      # generate a cubic bezier curve by given control points
-      p = np.array(self.param)
-      c = lambda t: (1 - t)**3*p[0] + 3*t*(1 - t)**2*p[1] + 3*t**2*(1-t)*p[2] + t**3*p[3]
-      self.traj = np.array([c(t) for t in np.arange(0, 1, gran)])
-
-      for p in self.traj:
-        self.point_bodies.append(self.world.CreateStaticBody(
-            position=(p[0], p[1]),
-            angle = 0.0,
-            fixtures = WP_FD,
-          )
-        )
-        self.point_bodies[-1].userData = 'way point'
-        self.point_bodies[-1].color = (120/255, 0/255, 183/255)
-
-      return 1
-    else:
-      return -1
-
-class Spiral_traj():
-  def __init__(self, world):
-    # parameters: direction (cw/ccw), \theta_offset (t_os), \theta_0 (t_0), \theta_e (t_e)
-    self.para_len = 4
-    self.param = [0]*4
-    self.traj = []
-    self.point_bodies = []
-    self.world = world
-    self.ctrl_start = Box2D.b2Vec2(0,0)
-    self.rod_pos = Box2D.b2Vec2(0,0)
-
-  def clear_bodies(self, bodies):
-    while len(bodies) > 0:
-      self.world.DestroyBody(bodies[-1])
-      del(bodies[-1])
-  
-  def clean(self):
-    self.param = [0]*4
-    self.traj = []
-    self.clear_bodies(self.point_bodies)
-
-  def traj_gen(self, param, gran = 0.1):
-    self.clean()
-    n = -1/2
-    x_r = self.rod_pos[0]
-    y_r = self.rod_pos[1]
-    x_g = self.ctrl_start[0]
-    y_g = self.ctrl_start[1]
-    t_0 = param[1] # 0.2
-    t_e = param[2] # t_0 + np.pi*2 
-
-    if param[0] == 0:
-      # go around the rod in a CCW manner (and angles are positive)
-      if x_g-x_r == 0:
-        if y_g < y_r:
-          t_os = 3/2*np.pi
-        else:
-          t_os = np.pi/2
-      else:
-        t_os = np.arctan((y_g-y_r)/(x_g-x_r))
-
-      r_0 = np.sqrt((x_r-x_g)**2+(y_r-y_g)**2)
-      a = r_0/np.power(t_0, n)
-      for dt in np.arange(0, t_e-t_0, gran):
-        r = a*np.power((t_0+dt), n)
-        t = dt + t_os
-        x = r*np.cos(t) + x_r
-        y = r*np.sin(t) + y_r
-        self.traj.append([x,y])
-    else:
-      # go around the rod in a CW manner (and angles are negative)
-      if x_g-x_r == 0:
-        if y_g < y_r:
-          t_os = 3/2*np.pi
-        else:
-          t_os = np.pi/2
-      else:
-        t_os = np.arctan((y_g-y_r)/(x_g-x_r))
-
-      r_0 = np.sqrt((x_r-x_g)**2+(y_r-y_g)**2)
-      a = r_0/np.power(t_0, n)
-      for dt in np.arange(0, t_e-t_0, gran):
-        r = a*np.power((t_0+dt), n)
-        t = -dt + t_os
-        x = r*np.cos(t) + x_r
-        y = r*np.sin(t) + y_r
-        self.traj.append([x,y])
-
-    for p in self.traj:
-      self.point_bodies.append(self.world.CreateStaticBody(
-          position=(p[0], p[1]),
-          angle = 0.0,
-          fixtures = WP_FD,
-        )
-      )
-      self.point_bodies[-1].userData = 'way point'
-      self.point_bodies[-1].color = (120/255, 0/255, 183/255)
-
-    return 1
+from define import *
+from bezier import Bezier_traj
+from spiral import Spiral_traj
 
 class ContactDetector(contactListener):
     def __init__(self, env):
@@ -346,7 +90,7 @@ class ContactDetector(contactListener):
 class Coil2DEnv(gym.Env, EzPickle):
   metadata = {'render.modes': ['human', "rgb_array"], "video.frames_per_second":FPS}
 
-  def __init__(self):
+  def __init__(self, curve = 'spiral'):
     EzPickle.__init__(self)
     # self.seed()
     self.viewer = None
@@ -359,8 +103,10 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     self.rod = None
     self.rope = None
-    # self.curve = Bezier_traj(self.world)
-    self.curve = Spiral_traj(self.world)
+    if curve == 'bezier':
+      self.curve = Bezier_traj(self.world)
+    else:
+      self.curve = Spiral_traj(self.world)
 
     # the state of gripping the rope or not
     self.grabbed = -1
@@ -399,10 +145,9 @@ class Coil2DEnv(gym.Env, EzPickle):
     )
     self.rod.userData = 'rod'
     self.rod.color = (38/255, 70/255, 83/255)
-    self.curve.rod_pos = self.rod.position
 
     # The gripper that pins down the starting point of the chain.
-    pinned_pos = [PHY_W/2-8, PHY_H/2+5]
+    pinned_pos = [PHY_W/2-10, PHY_H/2+5]
     self.pinned = self.world.CreateStaticBody(
       position = pinned_pos,
       angle = 0.0,
@@ -465,10 +210,6 @@ class Coil2DEnv(gym.Env, EzPickle):
     )
     self.gripper.userData = 'gripper'
     self.gripper.color = (231/255, 111/255, 81/255)
-
-    # If you want to generate a Bezier curve,
-    # the position of th gripper will be the first control point
-    self.curve.ctrl_start = self.gripper.position
 
     # grab the rope with the gripper
     rjd = revoluteJointDef(
@@ -551,8 +292,10 @@ class Coil2DEnv(gym.Env, EzPickle):
       # self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
       ...
       if i == self.grabbed+1:
+        # the part being grabbed shown as green
         self.rope[i].color = GREEN
       elif i > self.grabbed+1 and self.grabbed > 0:
+        # beyond the grabbing point as dark red.
         pos = self.rope[i-1].position
         angle = self.rope[i-1].angle
         self.rope[i].color = DARK_RED
@@ -561,18 +304,11 @@ class Coil2DEnv(gym.Env, EzPickle):
       else:
         ...
 
-    # if action[3] > -1 and action[4] > -1:
-    #   # self.curve.place_ctrl_param(action[3], action[4])
-    #   self.curve.traj_gen()
-    #   action[3] = -1
-    #   action[4] = -1
-    #   # print(self.curve.param)
-
   def dist(self, p1, p2):
     return np.sqrt((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)
 
   def macro_step(self, param):
-    self.curve.traj_gen([1, 0.2, 0.2+np.pi*2])
+    self.curve.traj_gen(param, self.rod.position, self.gripper.position)
     print('traj ready')
     for p in self.curve.traj:
       time_out = 0
@@ -583,6 +319,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         print(d)
         
         if d > 0.14:
+          
           a = [0]*3
           if p[0] < x-0.1:
             a[0] = -1
@@ -652,7 +389,7 @@ if __name__ == "__main__":
 
   kb = Interactive()
 
-  env = Coil2DEnv()
+  env = Coil2DEnv(curve='spiral')
   env.reset()
   images = []
   # anime = True
@@ -662,6 +399,7 @@ if __name__ == "__main__":
   env.viewer.window.on_key_press = kb.key_press
 
   # initializing the environment
+  # PRESS S TO START!
   for i in range(30):
     env.render()
     env.micro_step([0]*3) # take a random action?
