@@ -1,17 +1,14 @@
 import Box2D
 from Box2D.b2 import (
-    # edgeShape,
     circleShape,
     fixtureDef,
     polygonShape,
-    revoluteJointDef,
-    contactListener,
 )
 
 FPS = 50
 SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
 
-VIEWPORT_W = 800
+VIEWPORT_W = 1000
 VIEWPORT_H = 800
 
 PHY_W = VIEWPORT_W / SCALE
@@ -27,7 +24,7 @@ PX_GRIPPER_W = 30
 PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
                    (PX_GRIPPER_L/2, -PX_GRIPPER_W/2), (-PX_GRIPPER_L/2, -PX_GRIPPER_W/2)]
 # number of sections along the chain
-SECT_NUM = 36 # the number of chains
+SECT_NUM = 28 # the number of chains
 PX_SECT_L = 30 # the length of a piece of the chains
 PX_SECT_W = 6 # the width of a piece of the chains
 PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\

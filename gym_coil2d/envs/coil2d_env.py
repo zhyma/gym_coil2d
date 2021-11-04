@@ -2,17 +2,9 @@ import sys
 import math
 # from typing import ParamSpec
 import numpy as np
-# from bezier_3 import bezier_3
 
 import Box2D
-from Box2D.b2 import (
-    # edgeShape,
-    circleShape,
-    fixtureDef,
-    polygonShape,
-    revoluteJointDef,
-    contactListener,
-)
+from Box2D.b2 import circleShape, polygonShape, revoluteJointDef
 
 import gym
 from gym import error, spaces, utils
@@ -22,70 +14,7 @@ from define import *
 from bezier import Bezier_traj
 from spiral import Spiral_traj
 
-class ContactDetector(contactListener):
-    def __init__(self, env):
-      contactListener.__init__(self)
-      # contact queue
-      # a queue that saves all the contacted sections.
-      # sort by number
-      self.que = []
-      self.env = env
-      self.loop = []
-
-    def BeginContact(self, contact):
-      self._contact(contact, True)
-      ...
-
-    def EndContact(self, contact):
-      self._contact(contact, False)
-      ...
-
-    def _contact(self, contact, begin):
-      section = None
-      gripper = None
-      u1 = contact.fixtureA.body.userData
-      u2 = contact.fixtureB.body.userData
-      
-      # contact is between the gripper and sections
-      if ('gripper' in u1 and 'section' in u2) or ('section' in u1 and 'gripper' in u2):
-        if 'gripper' in u1:
-          gripper = u1
-          section = u2
-        elif 'section' in u1:
-          gripper = u2
-          section = u1
-        else:
-          return
-
-        sect = int(section.split('_')[1])
-        if begin:
-          # BeginContact, insert the contacted section into the queue.
-          if not sect in self.que:
-            if len(self.que) == 0:
-              self.que = [sect]
-            else:
-              idx = 0
-              while idx < len(self.que) and self.que[idx] < sect:
-                idx += 1
-              self.que.insert(idx, sect)
-            # print(self.que, ', ', len(self.que))
-        else:
-          # EndContact, remove the section from the queue
-          if sect in self.que:
-            self.que.remove(sect)
-
-        if len(self.que) == 0:
-          self.env.contact_section = -1
-        else:
-          self.env.contact_section = self.que[len(self.que)//2]
-
-      # if contact is between sections
-      if ('section' in u1) and ('section' in u2):
-        sect_1 = int(u1.split('_')[1])
-        sect_2 = int(u2.split('_')[1])
-        if abs(sect_1-sect_2) > 3:
-          self.loop = [sect_1, sect_2]
-          # print("close loop detected")
+from contact import ContactDetector
 
 class Coil2DEnv(gym.Env, EzPickle):
   metadata = {'render.modes': ['human', "rgb_array"], "video.frames_per_second":FPS}
@@ -103,6 +32,8 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     self.rod = None
     self.rope = None
+    # the total number of sections along the rope
+    self.total_sects = SECT_NUM
     if curve == 'bezier':
       self.curve = Bezier_traj(self.world)
     else:
@@ -192,7 +123,6 @@ class Coil2DEnv(gym.Env, EzPickle):
           localAnchorA = last_anchor,
           localAnchorB = next_anchor,
           enableMotor = False,
-          # enableLimit = False,
           enableLimit = True,
           lowerAngle = -math.pi/8,
           upperAngle = math.pi/8,
@@ -225,7 +155,7 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     self.drawlist = [self.rod, self.gripper] + self.rope
 
-  def micro_step(self, action):
+  def step(self, action):
     # print(self.contact_section)
     # print(self.rope[3])
     # self.rope[1].fixtures = SECTION_FD
@@ -248,7 +178,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     # compensate the gravity term
     self.gripper.ApplyForceToCenter((0, self.gripper_weight), True, )
     for i in self.rope:
-      i.ApplyForceToCenter((0, self.section_weight), True, )
+     i.ApplyForceToCenter((0, self.section_weight), True, )
 
     # "r" key is pressed --> self.a[2] == -1
     if action[2] == -1:
@@ -256,8 +186,8 @@ class Coil2DEnv(gym.Env, EzPickle):
         self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
         print(self.world.contactListener.loop)
-        self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
-        self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
+        # self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
+        # self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
 
     # "g" key is pressed --> self.a[2] == 1
     if action[2] == 1:
@@ -284,9 +214,12 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # world.Step((dt, velocityIterations, positionIterations))
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
-     # sections with number greater than the one being grabbed are taken as having fixed joints
+    # sections with number greater than the one being grabbed are taken as having fixed joints
     pos = (0, 0)
     angle = 0
+
+    # TODO: add more sections if the gripper is close to the last
+
     for i in range(1,len(self.rope)):
       color_grad = ((i-1)%2)/2
       # self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
@@ -302,42 +235,14 @@ class Coil2DEnv(gym.Env, EzPickle):
         self.rope[i].position = [pos[0]+PHY_SECT_L*math.cos(angle), pos[1]+PHY_SECT_L*math.sin(angle)]
         self.rope[i].angle = angle
       else:
-        ...
-
-  def dist(self, p1, p2):
-    return np.sqrt((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)
-
-  def macro_step(self, param):
-    self.curve.traj_gen(param, self.rod.position, self.gripper.position)
-    print('traj ready')
-    for p in self.curve.traj:
-      time_out = 0
-      while time_out < 5:
-        x = self.gripper.position[0]
-        y = self.gripper.position[1]
-        d = self.dist([x, y], p)
-        print(d)
-        
-        if d > 0.14:
-          
-          a = [0]*3
-          if p[0] < x-0.1:
-            a[0] = -1
-          elif p[0] > x+0.1:
-            a[0] = 1
-          if p[1] < y-0.1:
-            a[1] = -1
-          elif p[1] > y+0.1:
-            a[1] = 1
-          
-          print(a)
-          self.micro_step(a)
-          self.render()
-          if self.dist(self.gripper.position, [x, y]) < 0.08:
-            # not moving for some reason
-            time_out += 1
-        else:
-          time_out = 10
+        # sections before the grabbing point
+        # refresh section color
+        color_grad = (i%2)/2
+        self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
+        if len(self.world.contactListener.loop) > 0:
+          self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
+          self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
+        print(self.world.contactListener.loop, end=',')
 
   def render(self, mode='human'):
     from gym.envs.classic_control import rendering
@@ -372,51 +277,43 @@ if __name__ == "__main__":
   from PIL import Image, ImageDraw
   from pyglet.window import key
 
-  class Interactive():
+  class KeyCtrl():
     def __init__(self):
         # left/right, up/down, grab/releases
-        self.a = [0, 0, 0, -1, -1]
+        self.a = [0, 0, 0]
         self.restart = False
         self.quit = False
-        self.start = False
 
     def key_press(self, k, mod):
         # 0xff0d is the 'enter' key
         # a == 0: no action
         if k == 0xff0d:     self.restart = True
         if k == key.ESCAPE: self.quit = True
-        if k == key.S:      self.start = True
+        if k == key.LEFT:   self.a[0] = -1
+        if k == key.RIGHT:  self.a[0] = 1
+        if k == key.UP:     self.a[1] = 1
+        if k == key.DOWN:   self.a[1] = -1
+        if k == key.G:      self.a[2] = 1 # grab
+        if k == key.R:      self.a[2] = -1 # release
 
-  kb = Interactive()
+    def key_release(self, k, mod):
+        if k == key.LEFT  and self.a[0] == -1: self.a[0] = 0
+        if k == key.RIGHT and self.a[0] ==  1: self.a[0] = 0
+        if k == key.UP    and self.a[1] ==  1: self.a[1] = 0
+        if k == key.DOWN  and self.a[1] == -1: self.a[1] = 0
+        if k == key.G     and self.a[2] ==  1: self.a[2] = 0
+        if k == key.R     and self.a[2] == -1: self.a[2] = 0
 
-  env = Coil2DEnv(curve='spiral')
+  kb = KeyCtrl()
+
+  env = Coil2DEnv()
   env.reset()
-  images = []
-  # anime = True
-  anime = False
 
   env.render()
   env.viewer.window.on_key_press = kb.key_press
-
-  # initializing the environment
-  # PRESS S TO START!
-  for i in range(30):
-    env.render()
-    env.micro_step([0]*3) # take a random action?
-
-  while kb.start == False:
-    env.render()
-    env.micro_step([0]*3)
-    
-  # 0 for CCW / 1 for CW, t_0 for starting angle, t_e for leaving angle
-  env.macro_step([1, 0.2, 0.2+np.pi*2])
-
-  # wait to quit
+  env.viewer.window.on_key_release = kb.key_release
   while kb.quit==False:
     env.render()
+    env.step(kb.a) # take a random action?
 
-    env.micro_step([0]*3) # take a random action?
-
-  # if anime:
-  #   images[0].save('test.gif', save_all=True, append_images=images[1:],optimize=False,duration=20,loop=0)
   env.close()
