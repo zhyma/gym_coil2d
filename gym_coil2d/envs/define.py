@@ -14,11 +14,15 @@ VIEWPORT_H = 800
 PHY_W = VIEWPORT_W / SCALE
 PHY_H = VIEWPORT_H / SCALE
 
-# all numbers defined here are measured in pixels
+# all number that are defined here are measured in pixels
+# a shape's position is defined by its' center
 # will not fullow OpenAI's naming convention, 
 # PX for measuring in pixels
 # PHY for measuring in meters
 # PHY_??? = PX_???/SCALE
+
+PX_ROD_R = 60
+
 PX_GRIPPER_L = 30
 PX_GRIPPER_W = 30
 PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
@@ -46,6 +50,15 @@ GREEN = (30/255, 120/255, 30/255)
 DARK_RED = (120/255, 30/255, 30/255)
 LIGHT_RED = (150/255, 0/255, 0/255)
 
+ROD_FD = fixtureDef(
+  shape = circleShape(pos = (0, 0), radius = PX_ROD_R/SCALE),
+  density = 1.0,
+  friction = 1, # very high friction
+  restitution = 0, # no restitution
+  categoryBits = 0x02,
+  maskBits = 0x10 + 0x08 + 0x04, # the rod collides with both the rope and the gripper
+)
+
 # a section of the chain
 # FD stands for fixtureDef
 SECTION_FD = fixtureDef(
@@ -53,7 +66,7 @@ SECTION_FD = fixtureDef(
   density = SECTION_DENSITY,
   friction = 0,
   categoryBits = 0x04,
-  maskBits = 0x10 + 0x02,  # collide only with rod
+  maskBits = 0x02,  # collide only with rod
   restitution = 0,
 )
 
@@ -63,7 +76,7 @@ PINNED_FD = fixtureDef(
   friction = 0, # very high friction
   restitution = 0, # no restitution
   categoryBits = 0x08,
-  maskBits = 0x08 + 0x02, # the gripper collides with the rod but not the rope
+  maskBits = 0x10 + 0x02, # the gripper collides with the rod but not the rope
 )
 
 GRIPPER_FD = fixtureDef(
@@ -71,33 +84,25 @@ GRIPPER_FD = fixtureDef(
   density = GRIPPER_DENSITY,
   friction = 1, # very high friction
   restitution = 0, # no restitution
-  categoryBits = 0x08,
+  categoryBits = 0x10,
   maskBits = 0x08 + 0x02, # the gripper collides with the rod but not the rope
 )
 
 # sensor has no density
-# define a sensor for the gripper
-S_GRIPPER_FD = fixtureDef(
-  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
-  categoryBits = 0x10,
-  maskBits = 0x04, # the gripper collides with the rod but not the rope
-  isSensor = True,
-)
 # define a sensor for the rope
 S_SECTION_FD = fixtureDef(
   shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_SECT_POLY]),
-  categoryBits = 0x16,
-  maskBits = 0x16, # sections only collides with other sections
+  categoryBits = 0x20,
+  maskBits = 0x20+0x40, # sections only collides with other sections
   isSensor = True,
 )
 
-ROD_FD = fixtureDef(
-  shape = circleShape(pos = (0, 0), radius = 2),
-  density = 1.0,
-  friction = 1, # very high friction
-  restitution = 0, # no restitution
-  categoryBits = 0x02,
-  maskBits = 0x08 + 0x04 + 0x02, # the rod collides with both the rope and the gripper
+# define a sensor for the gripper
+S_GRIPPER_FD = fixtureDef(
+  shape = polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in PX_GRIPPER_POLY]),
+  categoryBits = 0x40,
+  maskBits = 0x20, # the gripper collides with the rod but not the rope
+  isSensor = True,
 )
 
 # Bezier curve control point

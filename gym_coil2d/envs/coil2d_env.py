@@ -14,6 +14,7 @@ from define import *
 from bezier import Bezier_traj
 from spiral import Spiral_traj
 
+# from contact import find_contact
 from contact import ContactDetector
 
 class Coil2DEnv(gym.Env, EzPickle):
@@ -39,10 +40,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     else:
       self.curve = Spiral_traj(self.world)
 
-    # the state of gripping the rope or not
+    # the state of gripping the rope or not (-1)
     self.grabbed = -1
-    # wherer to grab (contacting point, no matter grabbed or not)
-    self.contact_section = -1
 
     # 6 low level controls: move left, move right, move up, move down, grab, release, x, y
     # TODO: update this field
@@ -105,6 +104,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         position = spos,
         angle = 0,
         fixtures = [S_SECTION_FD, SECTION_FD],
+        # fixtures = SECTION_FD
       )
 
       if i == ATTACH_NO:
@@ -133,76 +133,77 @@ class Coil2DEnv(gym.Env, EzPickle):
 
     # create the gripper
     self.gripper = self.world.CreateDynamicBody(
-      position = gpos,
+      position = [gpos[0]+1, gpos[1]+1],
       angle = 0.0,
       fixtures = [S_GRIPPER_FD, GRIPPER_FD],
+      # fixtures = GRIPPER_FD,
       fixedRotation = True,
     )
     self.gripper.userData = 'gripper'
     self.gripper.color = (231/255, 111/255, 81/255)
 
-    # grab the rope with the gripper
-    rjd = revoluteJointDef(
-        bodyA = self.rope[ATTACH_NO+1],
-        bodyB = self.gripper,
-        localAnchorA = (0,0),
-        localAnchorB = (0,0),
-        enableMotor = False,
-        enableLimit = False,
-    )
-    self.grabbing_joint = self.world.CreateJoint(rjd)
-    self.grabbed = ATTACH_NO
+    # # grab the rope with the gripper
+    # rjd = revoluteJointDef(
+    #     bodyA = self.rope[ATTACH_NO+1],
+    #     bodyB = self.gripper,
+    #     localAnchorA = (0,0),
+    #     localAnchorB = (0,0),
+    #     enableMotor = False,
+    #     enableLimit = False,
+    # )
+    # self.grabbing_joint = self.world.CreateJoint(rjd)
+    # self.grabbed = ATTACH_NO
+
+    self.world.contactListener.reachable = []
+    self.world.contactListener.intersect = []
 
     self.drawlist = [self.rod, self.gripper] + self.rope
 
   def step(self, action):
-    # print(self.contact_section)
-    # print(self.rope[3])
-    # self.rope[1].fixtures = SECTION_FD
-    # print("type is: ",)
-    # print(self.rope[1].fixtures)
+    # for contact in self.world.contacts:
+    #   print(contact.fixtureA.body.userData, end=',')
+    #   print(contact.fixtureB.body.userData)
 
-    # moving by using keyboard
-    DELTA_D = 0.1
-    if self.grabbed >= 0:
-      DELTA_D = 0.5
-    if action[0] == -1: # left
-      self.gripper.position += (-DELTA_D, 0)
-    if action[0] == 1: # right
-      self.gripper.position += (+DELTA_D, 0)
-    if action[1] == 1: # up
-      self.gripper.position += (0, +DELTA_D)
-    if action[1] == -1: # down
-      self.gripper.position += (0, -DELTA_D)
+    intersect_pair = self.world.contactListener.find_intersect()
+    print(self.world.contactListener.reachable, end=', ')
+    print(self.world.contactListener.find_reachable())
+    print(self.world.contactListener.intersect, end=', ')
+    print(intersect_pair)
+    print('----')
 
-    # compensate the gravity term
-    self.gripper.ApplyForceToCenter((0, self.gripper_weight), True, )
-    for i in self.rope:
-     i.ApplyForceToCenter((0, self.section_weight), True, )
+    if (not action[0]==0) or (not action[1]==0):
+      # move the gripper, set it to the highest prioirty
+      DELTA_D = 0.1
+      if self.grabbed >= 0:
+        DELTA_D = 0.5
+      if action[0] == -1: # left
+        self.gripper.position += (-DELTA_D, 0)
+      if action[0] == 1: # right
+        self.gripper.position += (+DELTA_D, 0)
+      if action[1] == 1: # up
+        self.gripper.position += (0, +DELTA_D)
+      if action[1] == -1: # down
+        self.gripper.position += (0, -DELTA_D)
+      
+    elif action[2]==-1:
+      # release the gripper (e.g., "r" is pressed)
+      if self.grabbed >= 0:
+        # TODO: add more sections if the gripper is close to the last
 
-    # "r" key is pressed --> self.a[2] == -1
-    if action[2] == -1:
-       if self.grabbed >= 0:
+        # reset the gripper's property
         self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
-        print(self.world.contactListener.loop)
-        # self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
-        # self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
 
-    # "g" key is pressed --> self.a[2] == 1
-    if action[2] == 1:
-      # # if grabbing the rope, release it
-      # if self.grabbed >= 0:
-      #   self.grabbed = -1
-      #   self.world.DestroyJoint(self.grabbing_joint)
-      if self.grabbed == -1 and self.contact_section >= 0:
+    elif action[2]==1:
+      # grab the rope
+      if self.grabbed == -1 and len(self.world.contactListener.reachable) > 0:
+        # make sure the gripper is not grabbing the rope, and have contact
         # gp is the grabbing point
-        gp = self.contact_section+1
-        if gp >= len(self.rope):
-          gp = len(self.rope)-1
+        grab_point = self.world.contactListener.find_reachable()
         # grab the rope at that section
+        # rope always contain one extra element (pinned)
         rjd = revoluteJointDef(
-            bodyA = self.rope[gp],
+            bodyA = self.rope[grab_point+1],
             bodyB = self.gripper,
             localAnchorA = (0,0),
             localAnchorB = (0,0),
@@ -210,7 +211,18 @@ class Coil2DEnv(gym.Env, EzPickle):
             enableLimit = False,
         )
         self.grabbing_joint = self.world.CreateJoint(rjd)
-        self.grabbed = self.contact_section
+        self.grabbed = grab_point
+      else:
+        # no contact between the gripper and any sections
+        print('no section within reach')
+      pass
+    else:
+      pass # do nothing
+
+    # compensate the gravity term
+    self.gripper.ApplyForceToCenter((0, self.gripper_weight), True, )
+    for i in self.rope:
+     i.ApplyForceToCenter((0, self.section_weight), True, )
 
     # world.Step((dt, velocityIterations, positionIterations))
     self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
@@ -218,8 +230,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     pos = (0, 0)
     angle = 0
 
-    # TODO: add more sections if the gripper is close to the last
-
+    # update the color of sections to high light contact point and manipulation sections
     for i in range(1,len(self.rope)):
       color_grad = ((i-1)%2)/2
       # self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
@@ -239,10 +250,9 @@ class Coil2DEnv(gym.Env, EzPickle):
         # refresh section color
         color_grad = (i%2)/2
         self.rope[i].color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
-        if len(self.world.contactListener.loop) > 0:
-          self.rope[self.world.contactListener.loop[0]+1].color = LIGHT_RED
-          self.rope[self.world.contactListener.loop[1]+1].color = LIGHT_RED
-        print(self.world.contactListener.loop, end=',')
+        if len(intersect_pair) > 0:
+          self.rope[intersect_pair[0]+1].color = LIGHT_RED
+          self.rope[intersect_pair[1]+1].color = LIGHT_RED
 
   def render(self, mode='human'):
     from gym.envs.classic_control import rendering
@@ -257,6 +267,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         if type(f.shape) is circleShape:
           # drawing the rod
           t = rendering.Transform(translation=trans * f.shape.pos)
+          #  #def draw_circle(self, radius=10, res=30, filled=True, **attrs):
           self.viewer.draw_circle(f.shape.radius, 20, color=obj.color).add_attr(t)
           self.viewer.draw_circle(f.shape.radius, 20, color=obj.color, filled=False, linewidth=2).add_attr(t)
         else:
