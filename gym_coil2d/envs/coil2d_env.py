@@ -1,5 +1,5 @@
 import sys
-import math
+from math import sin, cos, pi
 # from typing import ParamSpec
 import numpy as np
 
@@ -124,8 +124,8 @@ class Coil2DEnv(gym.Env, EzPickle):
           localAnchorB = next_anchor,
           enableMotor = False,
           enableLimit = True,
-          lowerAngle = -math.pi/8,
-          upperAngle = math.pi/8,
+          lowerAngle = -pi/8,
+          upperAngle = pi/8,
         )
       self.rope_joints.append(self.world.CreateJoint(rjd))
       last_anchor = [PHY_SECT_L/2, 0]
@@ -165,9 +165,9 @@ class Coil2DEnv(gym.Env, EzPickle):
     #   print(contact.fixtureB.body.userData)
 
     intersect_pair = self.world.contactListener.find_intersect()
-    print(self.world.contactListener.reachable, end=', ')
+    print(self.world.contactListener.reachable, end=' --> ')
     print(self.world.contactListener.find_reachable())
-    print(self.world.contactListener.intersect, end=', ')
+    print(self.world.contactListener.intersect, end=' --> ')
     print(intersect_pair)
     print('----')
 
@@ -199,11 +199,11 @@ class Coil2DEnv(gym.Env, EzPickle):
       if self.grabbed == -1 and len(self.world.contactListener.reachable) > 0:
         # make sure the gripper is not grabbing the rope, and have contact
         # gp is the grabbing point
-        grab_point = self.world.contactListener.find_reachable()
+        gp = self.world.contactListener.find_reachable()
         # grab the rope at that section
         # rope always contain one extra element (pinned)
         rjd = revoluteJointDef(
-            bodyA = self.rope[grab_point+1],
+            bodyA = self.rope[gp+1],
             bodyB = self.gripper,
             localAnchorA = (0,0),
             localAnchorB = (0,0),
@@ -211,7 +211,12 @@ class Coil2DEnv(gym.Env, EzPickle):
             enableLimit = False,
         )
         self.grabbing_joint = self.world.CreateJoint(rjd)
-        self.grabbed = grab_point
+        self.grabbed = gp
+
+      elif action[2]==2:
+        #extend sections, from current intersecting point, extend 
+        ...
+
       else:
         # no contact between the gripper and any sections
         print('no section within reach')
@@ -243,7 +248,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         pos = self.rope[i-1].position
         angle = self.rope[i-1].angle
         self.rope[i].color = DARK_RED
-        self.rope[i].position = [pos[0]+PHY_SECT_L*math.cos(angle), pos[1]+PHY_SECT_L*math.sin(angle)]
+        self.rope[i].position = [pos[0]+PHY_SECT_L*cos(angle), pos[1]+PHY_SECT_L*sin(angle)]
         self.rope[i].angle = angle
       else:
         # sections before the grabbing point

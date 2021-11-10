@@ -1,3 +1,5 @@
+from math import pi
+
 import Box2D
 from Box2D.b2 import (
     circleShape,
@@ -27,12 +29,21 @@ PX_GRIPPER_L = 30
 PX_GRIPPER_W = 30
 PX_GRIPPER_POLY = [(-PX_GRIPPER_L/2, PX_GRIPPER_W/2), (PX_GRIPPER_L/2, PX_GRIPPER_W/2),\
                    (PX_GRIPPER_L/2, -PX_GRIPPER_W/2), (-PX_GRIPPER_L/2, -PX_GRIPPER_W/2)]
+
 # number of sections along the chain
 SECT_NUM = 28 # the number of chains
+
+# define the shape of a rope section
 PX_SECT_L = 30 # the length of a piece of the chains
 PX_SECT_W = 6 # the width of a piece of the chains
 PX_SECT_POLY = [(-PX_SECT_L/2, PX_SECT_W/2), (PX_SECT_L/2, PX_SECT_W/2),\
                 (PX_SECT_L/2, -PX_SECT_W/2), (-PX_SECT_L/2, -PX_SECT_W/2)]
+
+# the length of rope with sensor equipped (should be good enough to form a loop)
+form_a_loop = (2*pi*PX_ROD_R)//PX_SECT_L
+SENSOR_LEN = form_a_loop + form_a_loop//2
+
+MIN_TEST_LEN = form_a_loop-1
 
 # gripper initially clamped to section No. ?
 ATTACH_NO = 22

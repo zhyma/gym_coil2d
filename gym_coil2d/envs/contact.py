@@ -4,7 +4,10 @@ from gym.utils import seeding, colorize, EzPickle
 
 import numpy as np
 
+
 from Box2D.b2 import contactListener
+
+from define import MIN_TEST_LEN
 
 def dist(p1, p2):
   return np.sqrt((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)
@@ -99,22 +102,27 @@ class ContactDetector(contactListener):
 
     # find out the loop
     def find_intersect(self):
-      new_loop = []
+      detected = []
       frontier = -1
-      dist = 0
+      d = 1e5
       if len(self.intersect) > 0:
-        for p in self.intersect:
-          # p stands for pairs
-          if p[1] > frontier:
-            # primary condition: the farest possible section
-            new_loop = p
-            dist = p[1]-p[0]
-          elif p[1] == frontier:
-            # secondary condition: the pair with the farest distance
-            if p[1]-p[0] > dist:
-              new_loop = p
-              dist = p[1]-p[0]
-          else:
-            pass
+        for pairs in self.intersect:
+          if pairs[1]-pairs[0] > MIN_TEST_LEN:
+            # and the distance after strethed should be greater than 2*\pi*r
+            if pairs[1] > frontier:
+              # primary condition: the farest possible section
+              frontier = pairs[1]
+              detected = pairs.copy()
+              p1 = self.env.rope[pairs[0]+1].position
+              p2 = self.env.rope[pairs[1]+1].position
+              d = dist(p1, p2)
+            elif pairs[1] == frontier:
+              # secondary condition: the pair with the farest distance
+              p1 = self.env.rope[pairs[0]+1].position
+              p2 = self.env.rope[pairs[1]+1].position
+              d_ = dist(p1, p2)
+              if d > d_:
+                detected = pairs.copy()
+                d = d_
 
-      return new_loop
+      return detected
