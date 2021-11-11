@@ -32,9 +32,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.world = Box2D.b2World(gravity=(0, -self.g))
 
     self.rod = None
-    self.rope = None
-    # the total number of sections along the rope
-    self.total_sects = SECT_NUM
+    self.rope = None # list
+
     if curve == 'bezier':
       self.curve = Bezier_traj(self.world)
     else:
@@ -56,6 +55,55 @@ class Coil2DEnv(gym.Env, EzPickle):
   def _destroy(self):
     self.world.contactListener = None
     ...
+
+  def rope_extend(self, n_sections, jpos, anchor = [PHY_SECT_L/2, 0]):
+    gpos = [0, 0]
+    print(n_sections)
+    if n_sections > 0:
+      last_anchor = anchor.copy()
+      next_anchor = [-PHY_SECT_L/2, 0]
+      
+      last_jpos = jpos.copy()
+      angle = self.rope[-1].angle
+      print('extend the rope')
+      print('angle='+str(angle))
+      for i in range(n_sections):
+        print(i, end=',')
+        # create a section, spos is the section position
+        spos = (last_jpos[0]+PHY_SECT_L/2*cos(angle), last_jpos[1]+PHY_SECT_L/2*sin(angle))
+        new_section = self.world.CreateDynamicBody(
+          position = spos,
+          angle = angle,
+          fixtures = [S_SECTION_FD, SECTION_FD],
+          # fixtures = SECTION_FD
+        )
+
+        if i == ATTACH_NO:
+          gpos = (last_jpos[0]+PHY_SECT_L/2*cos(angle), last_jpos[1]+PHY_SECT_L/2*sin(angle))
+
+        new_section.userData = 'section_' + str(len(self.rope)-1)
+        color_grad = (i%2)/2
+        new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
+        self.rope.append(new_section)
+        # create a joint between sections, attach this section to its' predecessor
+        # if i < ATTACH_NO:
+        if True:
+          rjd = revoluteJointDef(
+            bodyA = self.rope[-2],
+            bodyB = self.rope[-1],
+            localAnchorA = last_anchor,
+            localAnchorB = next_anchor,
+            enableMotor = False,
+            enableLimit = True,
+            lowerAngle = -pi/8,
+            upperAngle = pi/8,
+          )
+        self.rope_joints.append(self.world.CreateJoint(rjd))
+        last_anchor = [PHY_SECT_L/2, 0]
+        last_jpos = [last_jpos[0]+PHY_SECT_L*cos(angle), last_jpos[1]+PHY_SECT_L*sin(angle)]
+      
+    print('\n')
+    return gpos
 
   def reset(self):
     self._destroy()
@@ -90,46 +138,11 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.rope = [self.pinned]
     self.grabbing_joint = None
     self.rope_joints = []
-    last_anchor = [0, 0]
-    next_anchor = [-PHY_SECT_L/2, 0]
-    # jpos_world stands for joint pos under the world coordinate
-    last_jpos_world = [i for i in pinned_pos]
+    
+    # jpos stands for joint pos under the world coordinate
+    last_jpos = [i for i in pinned_pos]
     # gpos_x and gpos_y stand for the gripper position (attach to a section of the rope)
-    gpos = (0, 0)
-    # sect_x_step = PHY_SECT_L
-    for i in range(SECT_NUM):
-      # create a section, spos ithe section position
-      spos = (last_jpos_world[0]+PHY_SECT_L/2, last_jpos_world[1])
-      new_section = self.world.CreateDynamicBody(
-        position = spos,
-        angle = 0,
-        fixtures = [S_SECTION_FD, SECTION_FD],
-        # fixtures = SECTION_FD
-      )
-
-      if i == ATTACH_NO:
-        gpos = (last_jpos_world[0]+PHY_SECT_L/2, last_jpos_world[1])
-
-      new_section.userData = 'section_' + str(i)
-      color_grad = (i%2)/2
-      new_section.color = (233/255* color_grad, 196/255 * color_grad, 106/255* color_grad)
-      self.rope.append(new_section)
-      # create a joint between sections, attach this section to its' predecessor
-      # if i < ATTACH_NO:
-      if True:
-        rjd = revoluteJointDef(
-          bodyA = self.rope[-2],
-          bodyB = self.rope[-1],
-          localAnchorA = last_anchor,
-          localAnchorB = next_anchor,
-          enableMotor = False,
-          enableLimit = True,
-          lowerAngle = -pi/8,
-          upperAngle = pi/8,
-        )
-      self.rope_joints.append(self.world.CreateJoint(rjd))
-      last_anchor = [PHY_SECT_L/2, 0]
-      last_jpos_world = [last_jpos_world[0]+PHY_SECT_L, last_jpos_world[1]]
+    gpos = self.rope_extend(SECT_NUM, last_jpos, anchor=[0,0])
 
     # create the gripper
     self.gripper = self.world.CreateDynamicBody(
@@ -142,34 +155,19 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.gripper.userData = 'gripper'
     self.gripper.color = (231/255, 111/255, 81/255)
 
-    # # grab the rope with the gripper
-    # rjd = revoluteJointDef(
-    #     bodyA = self.rope[ATTACH_NO+1],
-    #     bodyB = self.gripper,
-    #     localAnchorA = (0,0),
-    #     localAnchorB = (0,0),
-    #     enableMotor = False,
-    #     enableLimit = False,
-    # )
-    # self.grabbing_joint = self.world.CreateJoint(rjd)
-    # self.grabbed = ATTACH_NO
-
     self.world.contactListener.reachable = []
     self.world.contactListener.intersect = []
 
     self.drawlist = [self.rod, self.gripper] + self.rope
+    print('len of draw list: '+str(len(self.drawlist)))
 
   def step(self, action):
-    # for contact in self.world.contacts:
-    #   print(contact.fixtureA.body.userData, end=',')
-    #   print(contact.fixtureB.body.userData)
-
     intersect_pair = self.world.contactListener.find_intersect()
-    print(self.world.contactListener.reachable, end=' --> ')
-    print(self.world.contactListener.find_reachable())
-    print(self.world.contactListener.intersect, end=' --> ')
-    print(intersect_pair)
-    print('----')
+    # print(self.world.contactListener.reachable, end=' --> ')
+    # print(self.world.contactListener.find_reachable())
+    # print(self.world.contactListener.intersect, end=' --> ')
+    # print(intersect_pair)
+    # print('----')
 
     if (not action[0]==0) or (not action[1]==0):
       # move the gripper, set it to the highest prioirty
@@ -188,9 +186,7 @@ class Coil2DEnv(gym.Env, EzPickle):
     elif action[2]==-1:
       # release the gripper (e.g., "r" is pressed)
       if self.grabbed >= 0:
-        # TODO: add more sections if the gripper is close to the last
-
-        # reset the gripper's property
+        # remove the joint that connects the gripper and the rope
         self.grabbed = -1
         self.world.DestroyJoint(self.grabbing_joint)
 
@@ -212,15 +208,26 @@ class Coil2DEnv(gym.Env, EzPickle):
         )
         self.grabbing_joint = self.world.CreateJoint(rjd)
         self.grabbed = gp
-
-      elif action[2]==2:
-        #extend sections, from current intersecting point, extend 
-        ...
-
       else:
         # no contact between the gripper and any sections
         print('no section within reach')
-      pass
+
+    elif action[2]==2:
+        # extend sections, from current intersecting point, extend the rope
+        # get the number of sections that is going to extend (a little smaller than SECT_NUM) 
+        exist_extra = len(self.rope)-1 - intersect_pair[1]
+        n_new = SECT_NUM - exist_extra
+        print(n_new)
+        if n_new > 0:
+          pos = self.rope[-1].position
+          angle = self.rope[-1].angle
+          last_jpos = [pos[0]+PHY_SECT_L/2*cos(angle), pos[1]+PHY_SECT_L/2*sin(angle)]  
+          print('number of new sections: '+str(n_new))
+          print(last_jpos)
+          _ = self.rope_extend(n_new, last_jpos)
+          self.drawlist = [self.rod, self.gripper] + self.rope
+          print('len of draw list: '+str(len(self.drawlist)))
+          print('len of rope: '+str(len(self.rope)))
     else:
       pass # do nothing
 
@@ -272,7 +279,7 @@ class Coil2DEnv(gym.Env, EzPickle):
         if type(f.shape) is circleShape:
           # drawing the rod
           t = rendering.Transform(translation=trans * f.shape.pos)
-          #  #def draw_circle(self, radius=10, res=30, filled=True, **attrs):
+          # #def draw_circle(self, radius=10, res=30, filled=True, **attrs):
           self.viewer.draw_circle(f.shape.radius, 20, color=obj.color).add_attr(t)
           self.viewer.draw_circle(f.shape.radius, 20, color=obj.color, filled=False, linewidth=2).add_attr(t)
         else:
@@ -306,11 +313,12 @@ if __name__ == "__main__":
         if k == 0xff0d:     self.restart = True
         if k == key.ESCAPE: self.quit = True
         if k == key.LEFT:   self.a[0] = -1
-        if k == key.RIGHT:  self.a[0] = 1
-        if k == key.UP:     self.a[1] = 1
+        if k == key.RIGHT:  self.a[0] =  1
+        if k == key.UP:     self.a[1] =  1
         if k == key.DOWN:   self.a[1] = -1
-        if k == key.G:      self.a[2] = 1 # grab
+        if k == key.G:      self.a[2] =  1 # grab
         if k == key.R:      self.a[2] = -1 # release
+        if k == key.N:      self.a[2] =  2 # extend the rope
 
     def key_release(self, k, mod):
         if k == key.LEFT  and self.a[0] == -1: self.a[0] = 0
@@ -319,11 +327,12 @@ if __name__ == "__main__":
         if k == key.DOWN  and self.a[1] == -1: self.a[1] = 0
         if k == key.G     and self.a[2] ==  1: self.a[2] = 0
         if k == key.R     and self.a[2] == -1: self.a[2] = 0
+        if k == key.N     and self.a[2] ==  2: self.a[2] = 0
 
   kb = KeyCtrl()
 
   env = Coil2DEnv()
-  env.reset()
+  # env.reset()
 
   env.render()
   env.viewer.window.on_key_press = kb.key_press
