@@ -215,8 +215,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     elif action[2]==2:
         # extend sections, from current intersecting point, extend the rope
         # get the number of sections that is going to extend (a little smaller than SECT_NUM) 
-        exist_extra = len(self.rope)-1 - intersect_pair[1]
-        n_new = SECT_NUM - exist_extra
+        exist_extra = (len(self.rope)-1) - intersect_pair[1]
+        n_new = SECT_NUM - exist_extra - 2
         print(n_new)
         if n_new > 0:
           pos = self.rope[-1].position

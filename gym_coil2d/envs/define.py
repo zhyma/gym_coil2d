@@ -10,7 +10,7 @@ from Box2D.b2 import (
 FPS = 50
 SCALE = 30.0  # affects how fast-paced the game is, forces should be adjusted as well
 
-VIEWPORT_W = 1000
+VIEWPORT_W = 1200
 VIEWPORT_H = 800
 
 PHY_W = VIEWPORT_W / SCALE
