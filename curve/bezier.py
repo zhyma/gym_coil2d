@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 import Box2D
 
-from define import *
+# from define import *
 
 class Bezier_traj():
   def __init__(self, world):

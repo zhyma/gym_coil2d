@@ -10,12 +10,10 @@ import gym
 from gym import error, spaces, utils
 from gym.utils import seeding, colorize, EzPickle
 
-from define import *
-# from bezier import Bezier_traj
-# from spiral import Spiral_traj
-
-# from contact import find_contact
-from contact import ContactDetector
+import sys
+sys.path.append("..")
+from envs.define import *
+from envs.contact import ContactDetector
 
 class Coil2DEnv(gym.Env, EzPickle):
   metadata = {'render.modes': ['human', "rgb_array"], "video.frames_per_second":FPS}

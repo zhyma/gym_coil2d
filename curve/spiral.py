@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from define import *
+# from define import *
 
 def traj_gen(param, rod_pos, gripper_pos, gran = 0.1):
   """

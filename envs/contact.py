@@ -4,10 +4,12 @@ from gym.utils import seeding, colorize, EzPickle
 
 import numpy as np
 
-
 from Box2D.b2 import contactListener
 
-from define import MIN_TEST_LEN
+
+import sys
+sys.path.append("..")
+from envs.define import MIN_TEST_LEN
 
 def dist(p1, p2):
   return np.sqrt((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)

@@ -1,1 +1,0 @@
-from gym_coil2d.envs.coil2d_env import Coil2DEnv
