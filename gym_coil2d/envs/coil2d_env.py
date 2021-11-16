@@ -11,8 +11,8 @@ from gym import error, spaces, utils
 from gym.utils import seeding, colorize, EzPickle
 
 from define import *
-from bezier import Bezier_traj
-from spiral import Spiral_traj
+# from bezier import Bezier_traj
+# from spiral import Spiral_traj
 
 # from contact import find_contact
 from contact import ContactDetector
@@ -20,7 +20,7 @@ from contact import ContactDetector
 class Coil2DEnv(gym.Env, EzPickle):
   metadata = {'render.modes': ['human', "rgb_array"], "video.frames_per_second":FPS}
 
-  def __init__(self, curve = 'spiral'):
+  def __init__(self):
     EzPickle.__init__(self)
     # self.seed()
     self.viewer = None
@@ -34,10 +34,10 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.rod = None
     self.rope = None # list
 
-    if curve == 'bezier':
-      self.curve = Bezier_traj(self.world)
-    else:
-      self.curve = Spiral_traj(self.world)
+    # do I need to save waypoints? maybe no.
+    self.waypoints = []
+    # bodies for waypoints, for rendering
+    self.wpbodies = []
 
     # the state of gripping the rope or not (-1)
     self.grabbed = -1
@@ -161,76 +161,8 @@ class Coil2DEnv(gym.Env, EzPickle):
     self.drawlist = [self.rod, self.gripper] + self.rope
     print('len of draw list: '+str(len(self.drawlist)))
 
-  def step(self, action):
+  def execute(self):
     intersect_pair = self.world.contactListener.find_intersect()
-    # print(self.world.contactListener.reachable, end=' --> ')
-    # print(self.world.contactListener.find_reachable())
-    # print(self.world.contactListener.intersect, end=' --> ')
-    # print(intersect_pair)
-    # print('----')
-
-    if (not action[0]==0) or (not action[1]==0):
-      # move the gripper, set it to the highest prioirty
-      DELTA_D = 0.1
-      if self.grabbed >= 0:
-        DELTA_D = 0.5
-      if action[0] == -1: # left
-        self.gripper.position += (-DELTA_D, 0)
-      if action[0] == 1: # right
-        self.gripper.position += (+DELTA_D, 0)
-      if action[1] == 1: # up
-        self.gripper.position += (0, +DELTA_D)
-      if action[1] == -1: # down
-        self.gripper.position += (0, -DELTA_D)
-      
-    elif action[2]==-1:
-      # release the gripper (e.g., "r" is pressed)
-      if self.grabbed >= 0:
-        # remove the joint that connects the gripper and the rope
-        self.grabbed = -1
-        self.world.DestroyJoint(self.grabbing_joint)
-
-    elif action[2]==1:
-      # grab the rope
-      if self.grabbed == -1 and len(self.world.contactListener.reachable) > 0:
-        # make sure the gripper is not grabbing the rope, and have contact
-        # gp is the grabbing point
-        gp = self.world.contactListener.find_reachable()
-        # grab the rope at that section
-        # rope always contain one extra element (pinned)
-        rjd = revoluteJointDef(
-            bodyA = self.rope[gp+1],
-            bodyB = self.gripper,
-            localAnchorA = (0,0),
-            localAnchorB = (0,0),
-            enableMotor = False,
-            enableLimit = False,
-        )
-        self.grabbing_joint = self.world.CreateJoint(rjd)
-        self.grabbed = gp
-      else:
-        # no contact between the gripper and any sections
-        print('no section within reach')
-
-    elif action[2]==2:
-        # extend sections, from current intersecting point, extend the rope
-        # get the number of sections that is going to extend (a little smaller than SECT_NUM) 
-        exist_extra = (len(self.rope)-1) - intersect_pair[1]
-        n_new = SECT_NUM - exist_extra - 2
-        print(n_new)
-        if n_new > 0:
-          pos = self.rope[-1].position
-          angle = self.rope[-1].angle
-          last_jpos = [pos[0]+PHY_SECT_L/2*cos(angle), pos[1]+PHY_SECT_L/2*sin(angle)]  
-          print('number of new sections: '+str(n_new))
-          print(last_jpos)
-          _ = self.rope_extend(n_new, last_jpos)
-          self.drawlist = [self.rod, self.gripper] + self.rope
-          print('len of draw list: '+str(len(self.drawlist)))
-          print('len of rope: '+str(len(self.rope)))
-    else:
-      pass # do nothing
-
     # compensate the gravity term
     self.gripper.ApplyForceToCenter((0, self.gripper_weight), True, )
     for i in self.rope:
@@ -266,6 +198,93 @@ class Coil2DEnv(gym.Env, EzPickle):
           self.rope[intersect_pair[0]+1].color = LIGHT_RED
           self.rope[intersect_pair[1]+1].color = LIGHT_RED
 
+  def step(self, action):
+    # print(self.world.contactListener.reachable, end=' --> ')
+    # print(self.world.contactListener.find_reachable())
+    # print(self.world.contactListener.intersect, end=' --> ')
+    # print(intersect_pair)
+    # print('----')
+    
+    if isinstance(action[2], list):
+      # control by waypoints
+      # create bodies of waypoints for rendering
+      self.create_wpbodies(action[2])
+    elif action[2] == -1:
+      self.clear_wpbodies()
+    else:
+      # control step by step
+      if (not action[0][0]==0) or (not action[0][1]==0):
+        # move the gripper, set it to the highest prioirty
+        self.gripper.position += (action[0][0], action[0][1])
+        
+      elif action[1]==-1:
+        # release the gripper (e.g., "r" is pressed)
+        if self.grabbed >= 0:
+          # remove the joint that connects the gripper and the rope
+          self.grabbed = -1
+          self.world.DestroyJoint(self.grabbing_joint)
+
+      elif action[1]==1:
+        # grab the rope
+        print('action[1]==1')
+        if self.grabbed == -1 and len(self.world.contactListener.reachable) > 0:
+          # make sure the gripper is not grabbing the rope, and have contact
+          # gp is the grabbing point
+          gp = self.world.contactListener.find_reachable()
+          # grab the rope at that section
+          # rope always contain one extra element (pinned)
+          rjd = revoluteJointDef(
+              bodyA = self.rope[gp+1],
+              bodyB = self.gripper,
+              localAnchorA = (0,0),
+              localAnchorB = (0,0),
+              enableMotor = False,
+              enableLimit = False,
+          )
+          self.grabbing_joint = self.world.CreateJoint(rjd)
+          self.grabbed = gp
+        else:
+          # no contact between the gripper and any sections
+          print('no section within reach')
+
+      elif action[1]==2:
+          # extend sections, from current intersecting point, extend the rope
+          # get the number of sections that is going to extend (a little smaller than SECT_NUM)
+          intersect_pair = self.world.contactListener.find_intersect()
+          exist_extra = (len(self.rope)-1) - intersect_pair[1]
+          n_new = SECT_NUM - exist_extra - 2
+          print(n_new)
+          if n_new > 0:
+            pos = self.rope[-1].position
+            angle = self.rope[-1].angle
+            last_jpos = [pos[0]+PHY_SECT_L/2*cos(angle), pos[1]+PHY_SECT_L/2*sin(angle)]  
+            print('number of new sections: '+str(n_new))
+            print(last_jpos)
+            _ = self.rope_extend(n_new, last_jpos)
+            self.drawlist = [self.rod, self.gripper] + self.rope
+            print('len of draw list: '+str(len(self.drawlist)))
+            print('len of rope: '+str(len(self.rope)))
+      
+      self.execute()
+
+  def create_wpbodies(self, wp):
+    for p in wp:
+      self.wpbodies.append(self.world.CreateStaticBody(
+          position=(p[0], p[1]),
+          angle = 0.0,
+          fixtures = WP_FD,
+        )
+      )
+      self.wpbodies[-1].userData = 'way point'
+      self.wpbodies[-1].color = (120/255, 0/255, 183/255)
+
+  def clear_wpbodies(self):
+    while len(self.wpbodies) > 0:
+      self.world.DestroyBody(self.wpbodies[-1])
+      del(self.wpbodies[-1])
+
+    self.wpbodies = []
+
   def render(self, mode='human'):
     from gym.envs.classic_control import rendering
 
@@ -273,7 +292,8 @@ class Coil2DEnv(gym.Env, EzPickle):
       self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
       self.viewer.set_bounds(0, VIEWPORT_W / SCALE, 0, VIEWPORT_H / SCALE)
 
-    for obj in self.drawlist + self.curve.point_bodies:
+    # for obj in self.drawlist + self.curve.point_bodies:
+    for obj in self.drawlist + self.wpbodies:
       for f in obj.fixtures:
         trans = f.body.transform
         if type(f.shape) is circleShape:
@@ -303,7 +323,7 @@ if __name__ == "__main__":
   class KeyCtrl():
     def __init__(self):
         # left/right, up/down, grab/releases
-        self.a = [0, 0, 0]
+        self.a = [[0,0], 0, -1]
         self.restart = False
         self.quit = False
 
@@ -312,22 +332,22 @@ if __name__ == "__main__":
         # a == 0: no action
         if k == 0xff0d:     self.restart = True
         if k == key.ESCAPE: self.quit = True
-        if k == key.LEFT:   self.a[0] = -1
-        if k == key.RIGHT:  self.a[0] =  1
-        if k == key.UP:     self.a[1] =  1
-        if k == key.DOWN:   self.a[1] = -1
-        if k == key.G:      self.a[2] =  1 # grab
-        if k == key.R:      self.a[2] = -1 # release
-        if k == key.N:      self.a[2] =  2 # extend the rope
+        if k == key.LEFT:   self.a[0][0] = -0.1
+        if k == key.RIGHT:  self.a[0][0] =  0.1
+        if k == key.UP:     self.a[0][1] =  0.2
+        if k == key.DOWN:   self.a[0][1] = -0.1
+        if k == key.G:      self.a[1] =  1 # grab
+        if k == key.R:      self.a[1] = -1 # release
+        if k == key.N:      self.a[1] =  2 # extend the rope
 
     def key_release(self, k, mod):
-        if k == key.LEFT  and self.a[0] == -1: self.a[0] = 0
-        if k == key.RIGHT and self.a[0] ==  1: self.a[0] = 0
-        if k == key.UP    and self.a[1] ==  1: self.a[1] = 0
-        if k == key.DOWN  and self.a[1] == -1: self.a[1] = 0
-        if k == key.G     and self.a[2] ==  1: self.a[2] = 0
-        if k == key.R     and self.a[2] == -1: self.a[2] = 0
-        if k == key.N     and self.a[2] ==  2: self.a[2] = 0
+        if k == key.LEFT  : self.a[0][0] = 0
+        if k == key.RIGHT : self.a[0][0] = 0
+        if k == key.UP    : self.a[0][1] = 0
+        if k == key.DOWN  : self.a[0][1] = 0
+        if k == key.G     and self.a[1] ==  1: self.a[1] = 0
+        if k == key.R     and self.a[1] == -1: self.a[1] = 0
+        if k == key.N     and self.a[1] ==  2: self.a[1] = 0
 
   kb = KeyCtrl()
 
