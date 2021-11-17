@@ -6,7 +6,6 @@ import numpy as np
 
 from Box2D.b2 import contactListener
 
-
 import sys
 sys.path.append("..")
 from envs.define import MIN_TEST_LEN

@@ -30,7 +30,8 @@ if __name__ == "__main__":
 
   kb = Interactive()
 
-  env = Coil2DEnv()
+  env = gym.make('gym_coil2d:coil2d-v0')
+  # env = Coil2DEnv()
   env.reset()
 
   def noop():
